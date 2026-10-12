@@ -1,0 +1,24 @@
+# Build output
+bin/
+obj/
+out/
+build/
+x64/
+ARM64/
+Debug/
+Release/
+
+# Visual Studio and tools
+.vs/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+*.ipch
+CMakeUserPresets.json
+
+# HTML prototype (kept local, published as an Artifact)
+prototype/
+
+# Local Claude settings
+.claude/settings.local.json
