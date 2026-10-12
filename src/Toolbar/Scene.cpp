@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Scene.h"
+#include "Effects.h"
 #include "Metrics.h"
 #include "Strings.h"
 
@@ -14,14 +15,24 @@ namespace dm
 {
     namespace
     {
-        // Soft shadow source: a 24 px rounded square, blurred, centered in 64 px.
-        constexpr int SoftSourcePx = 64;
-        constexpr float SoftPadPx = 20.f;
-        constexpr float SoftInsetPx = 24.f;
-
-        constexpr wchar_t TextFont[] = L"Segoe UI Variable Text";
+        // Fonts of the prototype. "JetBrains Mono" is not part of Windows,
+        // so the monospace text uses the next font in the CSS font list.
+        constexpr wchar_t TextFont[] = L"Noto Sans SC";
+        constexpr wchar_t MonoFont[] = L"Consolas";
         constexpr wchar_t Locale[] = L"zh-CN";
-        constexpr wchar_t CommandGlyph[] = L"";
+
+        // Room around the drawn shapes for their shadows (CSS px).
+        constexpr float ItemMargin = 36.f;
+        constexpr float OrbMargin = 30.f;
+
+        // backdrop-filter: blur(24px) saturate(1.6). The host backdrop has its
+        // own blur (about 20 CSS px, measured), so a second blur adds the rest.
+        constexpr float BackdropBlur = 24.f;
+        constexpr float HostBlur = 20.f;
+        constexpr float TrackSaturate = 1.6f;
+        constexpr float ResultsSaturate = 1.5f;
+
+        constexpr float PulsePeriod = 2.4f;
 
         struct Palette
         {
@@ -29,9 +40,17 @@ namespace dm
             Color tintAcrylic;
             Color tintSolid;
             Color border;
-            uint32_t text;
+            Color resultsTint;
+            Color resultsBorder;
+            float trackShadow;
+            float resultsShadow;
+            uint32_t inputText;
+            uint32_t placeholder;
+            float placeholderAlpha;
+            uint32_t caret;
+            uint32_t resultsText;
             uint32_t highlight;
-            float selectionAlpha;
+            uint32_t row;
             float rowAlpha;
             Rgb widgetStops[4];  // Collapsible widget: idle, second neighbor, first neighbor, expanded.
             Rgb chip;            // Widget that always shows its text.
@@ -40,16 +59,22 @@ namespace dm
             uint32_t widgetInk;  // Text on the expanded widget.
         };
 
+        // The values come from the CSS of the prototype. CSS alpha values are
+        // rounded to 8 bits, like a browser does.
         const Palette& PaletteFor(Theme t)
         {
-            static const Palette dark{ { 246, 246, 246 }, { 163, 30, 30, 30 }, { 255, 27, 27, 27 }, { 18, 255, 255, 255 },
-                                       0xFFFFFF, 0x8FE0CF, 0.34f, 0.1f,
-                                       { { 51, 51, 51 }, { 99, 99, 99 }, { 163, 163, 163 }, { 255, 255, 255 } },
-                                       { 46, 46, 46 }, { 15, 255, 255, 255 }, 0xD0D0D0, 0x111111 };
-            static const Palette light{ { 255, 255, 255 }, { 179, 247, 247, 247 }, { 255, 244, 244, 244 }, { 15, 0, 0, 0 },
-                                        0x000000, 0x2B7A6A, 0.24f, 0.06f,
-                                        { { 206, 206, 206 }, { 158, 158, 158 }, { 98, 98, 98 }, { 24, 24, 24 } },
-                                        { 226, 226, 226 }, { 13, 0, 0, 0 }, 0x3A3A3A, 0xFFFFFF };
+            static const Palette dark{
+                { 246, 246, 246 }, { 163, 30, 30, 30 }, { 255, 27, 27, 27 }, { 18, 255, 255, 255 },
+                { 224, 30, 30, 30 }, { 20, 255, 255, 255 }, 0.35f, 0.4f,
+                0xF2F2F2, 0xFFFFFF, 0.42f, 0x8FE0CF, 0xECECEC, 0x8FE0CF, 0xFFFFFF, 0.1f,
+                { { 51, 51, 51 }, { 99, 99, 99 }, { 163, 163, 163 }, { 255, 255, 255 } },
+                { 46, 46, 46 }, { 15, 255, 255, 255 }, 0xD0D0D0, 0x111111 };
+            static const Palette light{
+                { 255, 255, 255 }, { 179, 247, 247, 247 }, { 255, 244, 244, 244 }, { 15, 0, 0, 0 },
+                { 230, 248, 248, 248 }, { 15, 0, 0, 0 }, 0.22f, 0.22f,
+                0x111111, 0x000000, 0.4f, 0x2B7A6A, 0x1B1B1B, 0x2B7A6A, 0x000000, 0.06f,
+                { { 206, 206, 206 }, { 158, 158, 158 }, { 98, 98, 98 }, { 24, 24, 24 } },
+                { 226, 226, 226 }, { 13, 0, 0, 0 }, 0x3A3A3A, 0xFFFFFF };
             return t == Theme::Light ? light : dark;
         }
 
@@ -81,6 +106,17 @@ namespace dm
                      static_cast<uint8_t>(rgb) };
         }
 
+        // CSS rgb() with numbers that are not integers: the browser rounds them.
+        ColorF Css(Rgb c, float alpha)
+        {
+            return { Byte(c.r) / 255.f, Byte(c.g) / 255.f, Byte(c.b) / 255.f, Clamp01(alpha) };
+        }
+
+        ColorF Css(uint32_t rgb, float alpha)
+        {
+            return { ((rgb >> 16) & 0xFF) / 255.f, ((rgb >> 8) & 0xFF) / 255.f, (rgb & 0xFF) / 255.f, Clamp01(alpha) };
+        }
+
         D2D1_COLOR_F D2DColor(uint32_t rgb, float a = 1.f)
         {
             return D2D1::ColorF(rgb, a);
@@ -91,7 +127,7 @@ namespace dm
             return (static_cast<uint32_t>(Byte(c.r)) << 16) | (static_cast<uint32_t>(Byte(c.g)) << 8) | Byte(c.b);
         }
 
-        // Changes the transform so that the paint code can use DIPs.
+        // Changes the transform so that the paint code can use DIPs (CSS px).
         void UseDips(ID2D1DeviceContext* dc, float scale)
         {
             D2D1_MATRIX_3X2_F t;
@@ -104,19 +140,59 @@ namespace dm
             return { std::max(1, static_cast<int>(std::ceil(wDip * scale))), std::max(1, static_cast<int>(std::ceil(hDip * scale))) };
         }
 
-        bool HasFont(IDWriteFactory* dw, const wchar_t* family)
+        DWRITE_FONT_METRICS FontMetrics(IDWriteFactory* dw, const wchar_t* family, DWRITE_FONT_WEIGHT weight)
         {
+            DWRITE_FONT_METRICS m{};
+            m.designUnitsPerEm = 1000;
+            m.ascent = 1160;
+            m.descent = 288;
             winrt::com_ptr<IDWriteFontCollection> fonts;
-            if (FAILED(dw->GetSystemFontCollection(fonts.put())))
-            {
-                return false;
-            }
             UINT32 index = 0;
             BOOL exists = FALSE;
-            fonts->FindFamilyName(family, &index, &exists);
-            return exists != FALSE;
+            if (FAILED(dw->GetSystemFontCollection(fonts.put())) || FAILED(fonts->FindFamilyName(family, &index, &exists)) || !exists)
+            {
+                return m;
+            }
+            winrt::com_ptr<IDWriteFontFamily> fam;
+            winrt::com_ptr<IDWriteFont> font;
+            if (SUCCEEDED(fonts->GetFontFamily(index, fam.put())) &&
+                SUCCEEDED(fam->GetFirstMatchingFont(weight, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, font.put())))
+            {
+                font->GetMetrics(&m);
+            }
+            return m;
+        }
+
+        // The box-shadow lists of the prototype.
+        const ColorF Black{ 0, 0, 0, 1 };
+
+        ColorF WithAlpha(ColorF c, float a)
+        {
+            c.a = Clamp01(a);
+            return c;
+        }
+
+        ShadowList OrbShadows(float hover, float pulse)
+        {
+            static const ShadowList normal = {
+                { 0, 0, 0, 1, WithAlpha(Black, 0.45f) },
+                { 0, 2, 6, 0, WithAlpha(Black, 0.45f) },
+                { 0, -2, 4, 0, WithAlpha(Black, 0.22f), true },
+            };
+            static const ShadowList hovered = {
+                { 0, 0, 0, 1, WithAlpha(Black, 0.45f) },
+                { 0, 0, 14, 2, { 1, 1, 1, 0.35f } },
+            };
+            static const ShadowList pulsing = {
+                { 0, 0, 0, 1, WithAlpha(Black, 0.45f) },
+                { 0, 0, 16, 4, { 140 / 255.f, 220 / 255.f, 205 / 255.f, 0.5f } },
+            };
+            ShadowList list = Interpolate(normal, hovered, hover);
+            return pulse > 0.f ? Interpolate(list, pulsing, pulse) : list;
         }
     }
+
+    // ---------------------------------------------------------------- setup
 
     void Scene::Initialize(HWND hwnd, float scale)
     {
@@ -140,14 +216,12 @@ namespace dm
         root_ = compositor_.CreateContainerVisual();
         root_.RelativeSizeAdjustment({ 1.f, 1.f });
         target_.Root(root_);
+        stage_ = compositor_.CreateContainerVisual();
+        root_.Children().InsertAtTop(stage_);
 
-        track_ = CreatePanel();
-        root_.Children().InsertAtTop(track_.root);
-
+        track_ = CreatePanel(TrackSaturate);
+        orb_ = CreateDrawn();
         itemsLayer_ = compositor_.CreateContainerVisual();
-        orbBrush_ = compositor_.CreateSurfaceBrush();
-        orb_ = compositor_.CreateSpriteVisual();
-        orb_.Brush(orbBrush_);
 
         runBox_ = compositor_.CreateContainerVisual();
         runBox_.Clip(compositor_.CreateInsetClip());
@@ -162,6 +236,7 @@ namespace dm
         caretVisual_.Brush(caretBrush_);
         runBox_.Children().InsertAtTop(input_);
         runBox_.Children().InsertAtTop(caretVisual_);
+        track_.content.Children().InsertAtTop(runBox_);
 
         // The caret shows for half of the period and hides for the other half.
         auto step = compositor_.CreateStepEasingFunction();
@@ -172,12 +247,7 @@ namespace dm
         blink_.Duration(std::chrono::milliseconds(1060));
         blink_.IterationBehavior(wuc::AnimationIterationBehavior::Forever);
 
-        auto content = track_.content.Children();
-        content.InsertAtTop(itemsLayer_);
-        content.InsertAtTop(runBox_);
-        content.InsertAtTop(orb_);
-
-        results_ = CreatePanel();
+        results_ = CreatePanel(ResultsSaturate);
         resultsBrush_ = compositor_.CreateSurfaceBrush();
         resultsBrush_.Stretch(wuc::CompositionStretch::None);
         resultsBrush_.HorizontalAlignmentRatio(0.f);
@@ -185,13 +255,21 @@ namespace dm
         resultsContent_ = compositor_.CreateSpriteVisual();
         resultsContent_.Brush(resultsBrush_);
         results_.content.Children().InsertAtTop(resultsContent_);
+
+        // Paint order of the prototype: the toolbar box, then its children
+        // (the orb and the items, which can extend out of the box), then the results.
+        auto stage = stage_.Children();
+        stage.InsertAtTop(track_.shadow.sprite);
+        stage.InsertAtTop(track_.root);
+        stage.InsertAtTop(orb_.sprite);
+        stage.InsertAtTop(itemsLayer_);
+        stage.InsertAtTop(results_.shadow.sprite);
+        stage.InsertAtTop(results_.root);
+        results_.shadow.sprite.IsVisible(false);
         results_.root.IsVisible(false);
-        root_.Children().InsertAtTop(results_.root);
 
         barHeight_.x = barHeight_.target = BarHeight;
-        orbScale_.x = orbScale_.target = 1.f;
         vis_.x = vis_.target = 1.f;
-        RenderOrb();
         RenderInput();
     }
 
@@ -207,48 +285,357 @@ namespace dm
         }
         winrt::check_hresult(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2dFactory_.put()));
         winrt::check_hresult(d2dFactory_->CreateDevice(d3d.as<IDXGIDevice>().get(), d2dDevice_.put()));
-        winrt::check_hresult(d2dDevice_->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, offscreen_.put()));
+        winrt::check_hresult(d2dDevice_->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, helper_.put()));
 
         auto interop = compositor_.as<ABI::Windows::UI::Composition::ICompositorInterop>();
         winrt::check_hresult(interop->CreateGraphicsDevice(
             d2dDevice_.get(), reinterpret_cast<ABI::Windows::UI::Composition::ICompositionGraphicsDevice**>(winrt::put_abi(graphics_))));
     }
 
+    // 'lineHeight' > 0 sets a CSS line height: the extra space goes equally
+    // above and below the glyphs. Otherwise the format uses "line-height: normal".
+    winrt::com_ptr<IDWriteTextFormat> Scene::MakeFormat(const wchar_t* family, DWRITE_FONT_WEIGHT weight, float size,
+                                                       float lineHeight, bool trim)
+    {
+        winrt::com_ptr<IDWriteTextFormat> f;
+        winrt::check_hresult(dwrite_->CreateTextFormat(family, nullptr, weight, DWRITE_FONT_STYLE_NORMAL,
+                                                       DWRITE_FONT_STRETCH_NORMAL, size, Locale, f.put()));
+        f->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        if (lineHeight > 0.f)
+        {
+            const DWRITE_FONT_METRICS m = FontMetrics(dwrite_.get(), family, weight);
+            const float em = size / m.designUnitsPerEm;
+            const float ascent = m.ascent * em, descent = m.descent * em;
+            f->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, lineHeight, (lineHeight - ascent - descent) / 2 + ascent);
+        }
+        if (trim)
+        {
+            const DWRITE_TRIMMING t{ DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
+            winrt::com_ptr<IDWriteInlineObject> sign;
+            dwrite_->CreateEllipsisTrimmingSign(f.get(), sign.put());
+            f->SetTrimming(&t, sign.get());
+        }
+        return f;
+    }
+
     void Scene::CreateTextFormats()
     {
         winrt::check_hresult(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
                                                  reinterpret_cast<IUnknown**>(dwrite_.put())));
-
-        auto make = [&](const wchar_t* family, float size, bool trim) {
-            winrt::com_ptr<IDWriteTextFormat> f;
-            winrt::check_hresult(dwrite_->CreateTextFormat(family, nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-                                                           DWRITE_FONT_STRETCH_NORMAL, size, Locale, f.put()));
-            f->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-            f->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-            if (trim)
-            {
-                const DWRITE_TRIMMING t{ DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
-                winrt::com_ptr<IDWriteInlineObject> sign;
-                dwrite_->CreateEllipsisTrimmingSign(f.get(), sign.put());
-                f->SetTrimming(&t, sign.get());
-            }
-            return f;
-        };
-
-        inputFormat_ = make(TextFont, RunFontSize, false);
-        titleFormat_ = make(TextFont, TitleFontSize, true);
-        subtitleFormat_ = make(TextFont, SubtitleFontSize, true);
-        const wchar_t* glyphs = HasFont(dwrite_.get(), L"Segoe Fluent Icons") ? L"Segoe Fluent Icons" : L"Segoe MDL2 Assets";
-        glyphFormat_ = make(glyphs, 16.f, false);
-        glyphFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-
-        winrt::check_hresult(dwrite_->CreateTextFormat(TextFont, nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
-                                                       DWRITE_FONT_STRETCH_NORMAL, WidgetFontSize, Locale, widgetFormat_.put()));
-        widgetFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        inputFormat_ = MakeFormat(TextFont, DWRITE_FONT_WEIGHT_MEDIUM, RunFontSize, 0.f, false);
+        titleFormat_ = MakeFormat(TextFont, DWRITE_FONT_WEIGHT_SEMI_BOLD, TitleFontSize, TitleLineHeight, true);
+        subtitleFormat_ = MakeFormat(MonoFont, DWRITE_FONT_WEIGHT_NORMAL, SubtitleFontSize, SubtitleLineHeight, true);
+        keyFormat_ = MakeFormat(MonoFont, DWRITE_FONT_WEIGHT_NORMAL, KeyFontSize, KeyFontSize * LineHeightFactor, false);
+        widgetFormat_ = MakeFormat(TextFont, DWRITE_FONT_WEIGHT_SEMI_BOLD, WidgetFontSize, 0.f, false);
         widgetFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-        // Digits of the same width keep the widget width stable while values change.
-        winrt::check_hresult(dwrite_->CreateTypography(tabular_.put()));
-        tabular_->AddFontFeature({ DWRITE_FONT_FEATURE_TAG_TABULAR_FIGURES, 1 });
+
+        const DWRITE_FONT_METRICS m = FontMetrics(dwrite_.get(), TextFont, DWRITE_FONT_WEIGHT_MEDIUM);
+        inputLineHeight_ = static_cast<float>(m.ascent + m.descent + m.lineGap) / m.designUnitsPerEm * RunFontSize;
+    }
+
+    Scene::Drawn Scene::CreateDrawn()
+    {
+        Drawn d;
+        d.brush = compositor_.CreateSurfaceBrush();
+        d.brush.Stretch(wuc::CompositionStretch::None);
+        d.brush.HorizontalAlignmentRatio(0.f);
+        d.brush.VerticalAlignmentRatio(0.f);
+        d.sprite = compositor_.CreateSpriteVisual();
+        d.sprite.Brush(d.brush);
+        return d;
+    }
+
+    // backdrop-filter: blur(24px) saturate(n).
+    wuc::CompositionBrush Scene::BackdropBrush(float saturate)
+    {
+        auto host = compositor_.CreateHostBackdropBrush();
+        try
+        {
+            winrt::Windows::Graphics::Effects::IGraphicsEffectSource input = wuc::CompositionEffectSourceParameter(L"backdrop");
+            const float extra = std::sqrt(BackdropBlur * BackdropBlur - HostBlur * HostBlur) * scale_;
+            input = BlurEffect(extra, input);
+            auto factory = compositor_.CreateEffectFactory(SaturateEffect(saturate, input));
+            auto brush = factory.CreateBrush();
+            brush.SetSourceParameter(L"backdrop", host);
+            return brush;
+        }
+        catch (const winrt::hresult_error&)
+        {
+            return host;
+        }
+    }
+
+    Scene::Panel Scene::CreatePanel(float saturate)
+    {
+        auto& c = compositor_;
+        Panel p;
+        p.saturate = saturate;
+        p.root = c.CreateContainerVisual();
+        p.clip = c.CreateRoundedRectangleGeometry();
+        p.root.Clip(c.CreateGeometricClip(p.clip));
+        p.backdrop = c.CreateSpriteVisual();
+        p.backdrop.Brush(BackdropBrush(saturate));
+        p.tintBrush = c.CreateColorBrush();
+        p.tint = c.CreateSpriteVisual();
+        p.tint.Brush(p.tintBrush);
+        p.content = c.CreateContainerVisual();
+        p.borderGeom = c.CreateRoundedRectangleGeometry();
+        p.borderBrush = c.CreateColorBrush();
+        p.borderShape = c.CreateSpriteShape(p.borderGeom);
+        p.borderShape.StrokeBrush(p.borderBrush);
+        p.border = c.CreateShapeVisual();
+        p.border.Shapes().Append(p.borderShape);
+        p.shadow = CreateDrawn();
+
+        auto children = p.root.Children();
+        children.InsertAtTop(p.backdrop);
+        children.InsertAtTop(p.tint);
+        children.InsertAtTop(p.border);  // "inset 0 0 0 1px": above the background, below the children.
+        children.InsertAtTop(p.content);
+        return p;
+    }
+
+    void Scene::LayoutPanel(Panel& p, float x, float y, float w, float h, const PanelStyle& style)
+    {
+        const float s = scale_;
+        const float2 size{ w * s, h * s };
+        const float r = style.radius * s;
+        p.root.Offset({ x * s, y * s, 0 });
+        p.root.Size(size);
+        p.clip.Size(size);
+        p.clip.CornerRadius({ r, r });
+        p.backdrop.Size(size);
+        p.backdrop.IsVisible(material_ == Material::Acrylic || &p == &results_);
+        p.tint.Size(size);
+        p.tintBrush.Color(style.tint);
+        p.content.Size(size);
+        p.border.Size(size);
+        p.borderShape.StrokeThickness(s);  // 1 CSS px.
+        p.borderGeom.Offset({ s / 2, s / 2 });
+        p.borderGeom.Size({ std::max(0.f, size.x - s), std::max(0.f, size.y - s) });
+        p.borderGeom.CornerRadius({ std::max(0.f, r - s / 2), std::max(0.f, r - s / 2) });
+        p.borderBrush.Color(style.border);
+
+        const Shadow& sh = style.shadow;
+        const float m = std::ceil(sh.blur * 1.5f + std::fabs(sh.y) + std::fabs(sh.x) + sh.spread + 2);
+        Redraw(p.shadow, w + m * 2, h + m * 2, { w, h, style.radius, sh.y, sh.blur, sh.color.a },
+               [&](ID2D1DeviceContext* dc) {
+                   PaintShadows(dc, helper_.get(), D2D1::RectF(m, m, m + w, m + h), style.radius, { sh }, false, s);
+               });
+        p.shadow.sprite.Offset({ (x - m) * s, (y - m) * s, 0 });
+    }
+
+    template <class F>
+    void Scene::Paint(wuc::CompositionDrawingSurface& surface, int w, int h, F&& paint)
+    {
+        auto interop = surface.as<ABI::Windows::UI::Composition::ICompositionDrawingSurfaceInterop>();
+        winrt::com_ptr<ID2D1DeviceContext> dc;
+        POINT offset{};
+        winrt::check_hresult(interop->BeginDraw(nullptr, __uuidof(ID2D1DeviceContext), dc.put_void(), &offset));
+        dc->SetTransform(D2D1::Matrix3x2F::Translation(static_cast<float>(offset.x), static_cast<float>(offset.y)));
+        dc->PushAxisAlignedClip(D2D1::RectF(0, 0, static_cast<float>(w), static_cast<float>(h)), D2D1_ANTIALIAS_MODE_ALIASED);
+        dc->Clear(D2D1::ColorF(0, 0.f));
+        paint(dc.get());
+        dc->PopAxisAlignedClip();
+        winrt::check_hresult(interop->EndDraw());
+    }
+
+    template <class F>
+    void Scene::Redraw(Drawn& d, float wDip, float hDip, std::vector<float> key, F&& paint)
+    {
+        const auto px = PxSize(wDip, hDip, scale_);
+        key.push_back(scale_);
+        key.push_back(static_cast<float>(theme_));
+        key.push_back(static_cast<float>(px.Width));
+        key.push_back(static_cast<float>(px.Height));
+        if (d.surface && key == d.key)
+        {
+            return;
+        }
+        if (!d.surface)
+        {
+            d.surface = graphics_.CreateDrawingSurface2(px, wgd::DirectXPixelFormat::B8G8R8A8UIntNormalized,
+                                                        wgd::DirectXAlphaMode::Premultiplied);
+            d.brush.Surface(d.surface);
+        }
+        else if (d.surface.SizeInt32() != px)
+        {
+            d.surface.Resize(px);
+        }
+        d.sprite.Size({ static_cast<float>(px.Width), static_cast<float>(px.Height) });
+        Paint(d.surface, px.Width, px.Height, [&](ID2D1DeviceContext* dc) {
+            UseDips(dc, scale_);
+            paint(dc);
+        });
+        d.key = std::move(key);
+    }
+
+    // Bitmaps belong to the device, so all drawing contexts of the device can use them.
+    ID2D1Bitmap* Scene::BitmapFor(IWICBitmapSource* src, ID2D1DeviceContext* dc)
+    {
+        if (!src)
+        {
+            return nullptr;
+        }
+        if (auto it = bitmaps_.find(src); it != bitmaps_.end())
+        {
+            return it->second.bitmap.get();
+        }
+        CachedBitmap entry;
+        entry.source.copy_from(src);
+        if (FAILED(dc->CreateBitmapFromWicBitmap(src, nullptr, entry.bitmap.put())))
+        {
+            return nullptr;
+        }
+        ID2D1Bitmap* result = entry.bitmap.get();
+        bitmaps_.emplace(src, std::move(entry));
+        return result;
+    }
+
+    // ---------------------------------------------------------------- drawing
+
+    // paintItem() of the prototype for app items: outer shadows, the plate,
+    // inset shadows, then the icon clipped to the plate.
+    void Scene::RenderItem(ItemVisual& v, float cx, float cy, float)
+    {
+        const float s = scale_;
+        const Palette& pal = PaletteFor(theme_);
+        const float w = std::max(0.f, v.w.x), h = std::max(0.f, v.h.x), t = v.tone.x;
+        const float pa = Clamp01(t - 2.f), g = Clamp01(t / 2.f), q = 1.f - pa;
+        const Rgb d = v.src.main;
+        const Rgb black{ 0, 0, 0 }, white{ 255, 255, 255 };
+        const CollapsedStyle style = v.src.style.value_or(style_);
+
+        Rgb plate;
+        float iconSize, iconOpacity, brightness = 1.f;
+        ShadowList shadows;
+        if (style == CollapsedStyle::Glow)
+        {
+            const Rgb st[4] = { Mix(d, black, 0.12f), d, Mix(d, white, 0.22f), pal.plate };
+            plate = Stops(st, t);
+            iconSize = h * 0.74f;
+            iconOpacity = pa * pa;
+            shadows = {
+                { 0, 0, 5 + 8 * g, 0.5f + 1.5f * g, Css(d, (0.5f + 0.4f * g) * q) },
+                { 0, 1, 0, 0, Css(white, 0.45f * q), true },
+                { 0, 6 * pa, 18 * pa, 0, Css(black, 0.32f * pa) },
+                { 0, 0, 18 * pa, 0, Css(d, 0.28f * pa) },
+            };
+        }
+        else
+        {
+            const Rgb st[4] = { Mix(d, black, 0.62f), Mix(d, black, 0.48f), Mix(d, black, 0.3f), pal.plate };
+            plate = Stops(st, t);
+            iconSize = h * Lerp(1.3f, 0.74f, pa);
+            iconOpacity = 1.f;
+            brightness = pa >= 1.f ? 1.f : Lerp(0.72f, 1.f, std::max(g, pa));
+            shadows = {
+                { 0, 1, 0, 0, Css(white, 0.3f * q), true },
+                { 0, 0, 0, 1, Css(white, 0.14f * q), true },
+                { 0, 0, 0, 1, Css(black, 0.55f * q) },
+                { 0, 2 + 5 * pa, 5 + 13 * pa, 0, Css(black, 0.3f + 0.08f * pa) },
+            };
+        }
+        if (theme_ == Theme::Light)
+        {
+            shadows.push_back({ 0, 0, 0, 1, Css(black, 0.1f * pa) });
+        }
+
+        // Keep the surface on whole pixels and move the drawing by the fraction.
+        const float size = AppExpanded + ItemMargin * 2;
+        const float leftPx = cx * s - size * s / 2, topPx = cy * s - size * s / 2;
+        const float spriteX = std::floor(leftPx), spriteY = std::floor(topPx);
+        const float fx = (leftPx - spriteX) / s, fy = (topPx - spriteY) / s;
+
+        Redraw(v.art, size, size, { w, h, t, fx, fy, static_cast<float>(style) }, [&](ID2D1DeviceContext* dc) {
+            const float ox = size / 2 + fx, oy = size / 2 + fy;
+            const D2D1_RECT_F box = D2D1::RectF(ox - w / 2, oy - h / 2, ox + w / 2, oy + h / 2);
+            const float r = ItemRadius(w, h);
+
+            PaintShadows(dc, helper_.get(), box, r, shadows, false, s);
+            winrt::com_ptr<ID2D1SolidColorBrush> fill;
+            dc->CreateSolidColorBrush(ToD2D(Css(plate, 1.f)), fill.put());
+            dc->FillRoundedRectangle(D2D1::RoundedRect(box, r, r), fill.get());
+            PaintShadows(dc, helper_.get(), box, r, shadows, true, s);
+
+            ID2D1Bitmap* bmp = BitmapFor(v.src.icon.get(), dc);
+            if (!bmp || iconOpacity <= 0.f || w <= 0.f || h <= 0.f)
+            {
+                return;
+            }
+            winrt::com_ptr<ID2D1RoundedRectangleGeometry> clip;
+            d2dFactory_->CreateRoundedRectangleGeometry(D2D1::RoundedRect(box, r, r), clip.put());
+            dc->PushLayer(D2D1::LayerParameters1(D2D1::InfiniteRect(), clip.get()), nullptr);
+            const D2D1_RECT_F dst = D2D1::RectF(ox - iconSize / 2, oy - iconSize / 2, ox + iconSize / 2, oy + iconSize / 2);
+            if (brightness < 1.f)
+            {
+                // CSS filter: brightness(). It scales the color of the icon only.
+                winrt::com_ptr<ID2D1Effect> matrix;
+                if (SUCCEEDED(dc->CreateEffect(CLSID_D2D1ColorMatrix, matrix.put())))
+                {
+                    const D2D1_MATRIX_5X4_F m = D2D1::Matrix5x4F(brightness, 0, 0, 0, 0, brightness, 0, 0, 0, 0, brightness, 0,
+                                                                 0, 0, 0, 1, 0, 0, 0, 0);
+                    matrix->SetValue(D2D1_COLORMATRIX_PROP_COLOR_MATRIX, m);
+                    matrix->SetInput(0, bmp);
+                    D2D1_MATRIX_3X2_F old;
+                    dc->GetTransform(&old);
+                    const D2D1_SIZE_F bs = bmp->GetSize();
+                    dc->SetTransform(D2D1::Matrix3x2F::Scale(iconSize / bs.width, iconSize / bs.height) *
+                                     D2D1::Matrix3x2F::Translation(dst.left, dst.top) *
+                                     D2D1::Matrix3x2F::ReinterpretBaseType(&old)[0]);
+                    dc->DrawImage(matrix.get(), D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+                    dc->SetTransform(old);
+                }
+            }
+            else
+            {
+                dc->DrawBitmap(bmp, &dst, iconOpacity, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
+            }
+            dc->PopLayer();
+        });
+
+        v.art.sprite.Offset({ spriteX, spriteY, 0 });
+        v.art.sprite.CenterPoint({ cx * s - spriteX, cy * s - spriteY, 0 });
+        v.art.sprite.Scale({ v.press.x, v.press.x, 1 });
+    }
+
+    // .sb-orb: a radial gradient, a ring, a drop shadow, and an inset shadow.
+    void Scene::RenderOrb(float cx, float cy, float hover, float pulse)
+    {
+        const float s = scale_;
+        const float size = Orb + OrbMargin * 2;
+        const float leftPx = cx * s - size * s / 2, topPx = cy * s - size * s / 2;
+        const float spriteX = std::floor(leftPx), spriteY = std::floor(topPx);
+        const float fx = (leftPx - spriteX) / s, fy = (topPx - spriteY) / s;
+        const ShadowList shadows = OrbShadows(hover, pulse);
+
+        Redraw(orb_, size, size, { hover, pulse, fx, fy }, [&](ID2D1DeviceContext* dc) {
+            const float ox = size / 2 + fx, oy = size / 2 + fy, r = Orb / 2;
+            const D2D1_RECT_F box = D2D1::RectF(ox - r, oy - r, ox + r, oy + r);
+            PaintShadows(dc, helper_.get(), box, r, shadows, false, s);
+
+            // radial-gradient(circle at 34% 30%, ...): the radius reaches the farthest corner.
+            const D2D1_GRADIENT_STOP stops[] = {
+                { 0.00f, D2DColor(0xFFFFFF) },
+                { 0.20f, D2DColor(0xE8EDF0) },
+                { 0.62f, D2DColor(0xA9B2BA) },
+                { 1.00f, D2DColor(0x69737C) },
+            };
+            winrt::com_ptr<ID2D1GradientStopCollection> coll;
+            dc->CreateGradientStopCollection(stops, ARRAYSIZE(stops), coll.put());
+            const D2D1_POINT_2F center{ box.left + Orb * 0.34f, box.top + Orb * 0.30f };
+            const float reach = Orb * std::hypot(0.66f, 0.70f);
+            winrt::com_ptr<ID2D1RadialGradientBrush> fill;
+            dc->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties(center, { 0, 0 }, reach, reach), coll.get(), fill.put());
+            dc->FillEllipse(D2D1::Ellipse({ ox, oy }, r, r), fill.get());
+
+            PaintShadows(dc, helper_.get(), box, r, shadows, true, s);
+        });
+
+        orb_.sprite.Offset({ spriteX, spriteY, 0 });
+        orb_.sprite.CenterPoint({ cx * s - spriteX, cy * s - spriteY, 0 });
+        const float k = orbScale_.Value(time_);
+        orb_.sprite.Scale({ k, k, 1 });
     }
 
     void Scene::RenderLabel(ItemVisual& v, bool detail)
@@ -257,10 +644,9 @@ namespace dm
         winrt::com_ptr<IDWriteTextLayout> layout;
         winrt::check_hresult(dwrite_->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), widgetFormat_.get(),
                                                        100000.f, WidgetLineHeight, layout.put()));
-        layout->SetTypography(tabular_.get(), { 0, static_cast<UINT32>(text.size()) });
         DWRITE_TEXT_METRICS m{};
         layout->GetMetrics(&m);
-        const float width = std::ceil(m.widthIncludingTrailingWhitespace);
+        const float width = m.widthIncludingTrailingWhitespace;
         (detail ? v.detailW : v.briefW) = width;
 
         const Palette& pal = PaletteFor(theme_);
@@ -317,185 +703,11 @@ namespace dm
         return changed;
     }
 
-    Scene::Panel Scene::CreatePanel()
-    {
-        auto& c = compositor_;
-        Panel p;
-        p.root = c.CreateContainerVisual();
-        p.clip = c.CreateRoundedRectangleGeometry();
-        p.root.Clip(c.CreateGeometricClip(p.clip));
-        p.backdrop = c.CreateSpriteVisual();
-        p.backdrop.Brush(c.CreateHostBackdropBrush());
-        p.tintBrush = c.CreateColorBrush();
-        p.tint = c.CreateSpriteVisual();
-        p.tint.Brush(p.tintBrush);
-        p.content = c.CreateContainerVisual();
-        p.borderGeom = c.CreateRoundedRectangleGeometry();
-        p.borderBrush = c.CreateColorBrush();
-        auto shape = c.CreateSpriteShape(p.borderGeom);
-        shape.StrokeBrush(p.borderBrush);
-        shape.StrokeThickness(1.f);
-        p.border = c.CreateShapeVisual();
-        p.border.Shapes().Append(shape);
-
-        auto children = p.root.Children();
-        children.InsertAtTop(p.backdrop);
-        children.InsertAtTop(p.tint);
-        children.InsertAtTop(p.content);
-        children.InsertAtTop(p.border);
-        return p;
-    }
-
-    void Scene::LayoutPanel(Panel& p, float w, float h, float r)
-    {
-        const Palette& pal = PaletteFor(theme_);
-        const float2 size{ w, h };
-        p.root.Size(size);
-        p.clip.Size(size);
-        p.clip.CornerRadius({ r, r });
-        p.backdrop.Size(size);
-        p.backdrop.IsVisible(material_ == Material::Acrylic);
-        p.tint.Size(size);
-        p.tintBrush.Color(material_ == Material::Acrylic ? pal.tintAcrylic : pal.tintSolid);
-        p.content.Size(size);
-        p.border.Size(size);
-        p.borderGeom.Offset({ 0.5f, 0.5f });
-        p.borderGeom.Size({ std::max(0.f, w - 1), std::max(0.f, h - 1) });
-        p.borderGeom.CornerRadius({ std::max(0.f, r - 0.5f), std::max(0.f, r - 0.5f) });
-        p.borderBrush.Color(pal.border);
-    }
-
-    template <class F>
-    void Scene::Paint(wuc::CompositionDrawingSurface& surface, int w, int h, F&& paint)
-    {
-        auto interop = surface.as<ABI::Windows::UI::Composition::ICompositionDrawingSurfaceInterop>();
-        winrt::com_ptr<ID2D1DeviceContext> dc;
-        POINT offset{};
-        winrt::check_hresult(interop->BeginDraw(nullptr, __uuidof(ID2D1DeviceContext), dc.put_void(), &offset));
-        dc->SetTransform(D2D1::Matrix3x2F::Translation(static_cast<float>(offset.x), static_cast<float>(offset.y)));
-        dc->PushAxisAlignedClip(D2D1::RectF(0, 0, static_cast<float>(w), static_cast<float>(h)), D2D1_ANTIALIAS_MODE_ALIASED);
-        dc->Clear(D2D1::ColorF(0, 0.f));
-        paint(dc.get());
-        dc->PopAxisAlignedClip();
-        winrt::check_hresult(interop->EndDraw());
-    }
-
-    template <class F>
-    wuc::CompositionDrawingSurface Scene::Draw(int w, int h, F&& paint)
-    {
-        auto surface = graphics_.CreateDrawingSurface(
-            { static_cast<float>(w), static_cast<float>(h) },
-            wgd::DirectXPixelFormat::B8G8R8A8UIntNormalized, wgd::DirectXAlphaMode::Premultiplied);
-        Paint(surface, w, h, std::forward<F>(paint));
-        return surface;
-    }
-
-    // Bitmaps belong to the device, so all drawing contexts of the device can use them.
-    ID2D1Bitmap* Scene::BitmapFor(IWICBitmapSource* src, ID2D1DeviceContext* dc)
-    {
-        if (!src)
-        {
-            return nullptr;
-        }
-        if (auto it = bitmaps_.find(src); it != bitmaps_.end())
-        {
-            return it->second.bitmap.get();
-        }
-        CachedBitmap entry;
-        entry.source.copy_from(src);
-        if (FAILED(dc->CreateBitmapFromWicBitmap(src, nullptr, entry.bitmap.put())))
-        {
-            return nullptr;
-        }
-        ID2D1Bitmap* result = entry.bitmap.get();
-        bitmaps_.emplace(src, std::move(entry));
-        return result;
-    }
-
-    wuc::CompositionDrawingSurface Scene::RenderIcon(IWICBitmapSource* icon)
-    {
-        const int px = static_cast<int>(std::ceil(AppExpanded * scale_));
-        return Draw(px, px, [&](ID2D1DeviceContext* dc) {
-            if (ID2D1Bitmap* bmp = BitmapFor(icon, dc))
-            {
-                const D2D1_RECT_F dst = D2D1::RectF(0, 0, static_cast<float>(px), static_cast<float>(px));
-                dc->DrawBitmap(bmp, &dst, 1.f, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
-            }
-        });
-    }
-
-    wuc::CompositionBrush Scene::SoftBrush(Rgb color)
-    {
-        const uint32_t key = (Byte(color.r) << 16) | (Byte(color.g) << 8) | Byte(color.b);
-        if (auto it = softBrushes_.find(key); it != softBrushes_.end())
-        {
-            return it->second;
-        }
-
-        // Draw the sharp shape offscreen, then blur it into the surface.
-        winrt::com_ptr<ID2D1Bitmap1> sharp;
-        const D2D1_BITMAP_PROPERTIES1 props = D2D1::BitmapProperties1(
-            D2D1_BITMAP_OPTIONS_TARGET, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
-        winrt::check_hresult(offscreen_->CreateBitmap({ SoftSourcePx, SoftSourcePx }, nullptr, 0, &props, sharp.put()));
-        offscreen_->SetTarget(sharp.get());
-        offscreen_->BeginDraw();
-        offscreen_->Clear(D2D1::ColorF(0, 0.f));
-        winrt::com_ptr<ID2D1SolidColorBrush> fill;
-        offscreen_->CreateSolidColorBrush(D2D1::ColorF(color.r / 255.f, color.g / 255.f, color.b / 255.f, 1.f), fill.put());
-        const float a = SoftPadPx, b = SoftSourcePx - SoftPadPx;
-        offscreen_->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(a, a, b, b), 4.f, 4.f), fill.get());
-        winrt::check_hresult(offscreen_->EndDraw());
-        offscreen_->SetTarget(nullptr);
-
-        auto surface = Draw(SoftSourcePx, SoftSourcePx, [&](ID2D1DeviceContext* dc) {
-            winrt::com_ptr<ID2D1Effect> blur;
-            if (SUCCEEDED(dc->CreateEffect(CLSID_D2D1GaussianBlur, blur.put())))
-            {
-                blur->SetInput(0, sharp.get());
-                blur->SetValue(D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, 5.f);
-                blur->SetValue(D2D1_GAUSSIANBLUR_PROP_BORDER_MODE, D2D1_BORDER_MODE_SOFT);
-                dc->DrawImage(blur.get());
-            }
-        });
-
-        auto nine = compositor_.CreateNineGridBrush();
-        nine.Source(compositor_.CreateSurfaceBrush(surface));
-        nine.SetInsets(SoftInsetPx);
-        softBrushes_.emplace(key, nine);
-        return nine;
-    }
-
-    void Scene::RenderOrb()
-    {
-        const float d = std::round(Orb * scale_);
-        const int margin = 2;
-        const int size = static_cast<int>(d) + margin * 2;
-        auto surface = Draw(size, size, [&](ID2D1DeviceContext* dc) {
-            const D2D1_GRADIENT_STOP stops[] = {
-                { 0.00f, D2DColor(0xFFFFFF) },
-                { 0.20f, D2DColor(0xE8EDF0) },
-                { 0.62f, D2DColor(0xA9B2BA) },
-                { 1.00f, D2DColor(0x69737C) },
-            };
-            winrt::com_ptr<ID2D1GradientStopCollection> coll;
-            dc->CreateGradientStopCollection(stops, ARRAYSIZE(stops), coll.put());
-            const D2D1_POINT_2F focus{ margin + d * 0.34f, margin + d * 0.30f };
-            winrt::com_ptr<ID2D1RadialGradientBrush> fill;
-            dc->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties(focus, { 0, 0 }, d * 0.96f, d * 0.96f), coll.get(), fill.put());
-            const D2D1_ELLIPSE e = D2D1::Ellipse({ margin + d / 2, margin + d / 2 }, d / 2, d / 2);
-            dc->FillEllipse(e, fill.get());
-            winrt::com_ptr<ID2D1SolidColorBrush> ring;
-            dc->CreateSolidColorBrush(D2D1::ColorF(0, 0.45f), ring.put());
-            dc->DrawEllipse(D2D1::Ellipse(e.point, d / 2 - 0.5f, d / 2 - 0.5f), ring.get(), 1.f);
-        });
-        orbBrush_.Surface(surface);
-        orb_.Size({ static_cast<float>(size), static_cast<float>(size) });
-    }
-
+    // .sb-run input: "500 15px" text, the placeholder, the selection, and the caret.
     void Scene::RenderInput()
     {
         const float fieldW = RunWidth - RunTextLeft - RunTextRight;
-        const auto px = PxSize(fieldW, RunLineHeight, scale_);
+        const auto px = PxSize(fieldW, inputLineHeight_, scale_);
         if (!inputSurface_)
         {
             inputSurface_ = graphics_.CreateDrawingSurface2(px, wgd::DirectXPixelFormat::B8G8R8A8UIntNormalized,
@@ -512,7 +724,7 @@ namespace dm
         const std::wstring_view shown = empty ? std::wstring_view(strings::RunPlaceholder) : std::wstring_view(inputText_);
         inputLayout_ = nullptr;
         winrt::check_hresult(dwrite_->CreateTextLayout(shown.data(), static_cast<UINT32>(shown.size()), inputFormat_.get(),
-                                                       100000.f, RunLineHeight, inputLayout_.put()));
+                                                       100000.f, inputLineHeight_, inputLayout_.put()));
 
         caretX_ = 0.f;
         float textW = 0.f;
@@ -547,26 +759,30 @@ namespace dm
         }
 
         const Palette& pal = PaletteFor(theme_);
+        const bool selection = !empty && selEnd_ > selStart_;
         Paint(inputSurface_, px.Width, px.Height, [&](ID2D1DeviceContext* dc) {
             UseDips(dc, scale_);
             dc->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
-            if (!empty && selEnd_ > selStart_)
+            const DWRITE_TEXT_RANGE range{ static_cast<UINT32>(selStart_), static_cast<UINT32>(selEnd_ - selStart_) };
+            if (selection)
             {
+                // The browser uses the system highlight colors for a selection.
                 DWRITE_HIT_TEST_METRICS ranges[8];
                 UINT32 count = 0;
-                inputLayout_->HitTestTextRange(static_cast<UINT32>(selStart_), static_cast<UINT32>(selEnd_ - selStart_), 0, 0,
-                                               ranges, ARRAYSIZE(ranges), &count);
-                winrt::com_ptr<ID2D1SolidColorBrush> sel;
-                dc->CreateSolidColorBrush(D2DColor(pal.highlight, pal.selectionAlpha), sel.put());
+                inputLayout_->HitTestTextRange(range.startPosition, range.length, 0, 0, ranges, ARRAYSIZE(ranges), &count);
+                winrt::com_ptr<ID2D1SolidColorBrush> sel, selText;
+                const COLORREF hl = GetSysColor(COLOR_HIGHLIGHT), ht = GetSysColor(COLOR_HIGHLIGHTTEXT);
+                dc->CreateSolidColorBrush(D2D1::ColorF(GetRValue(hl) / 255.f, GetGValue(hl) / 255.f, GetBValue(hl) / 255.f), sel.put());
+                dc->CreateSolidColorBrush(D2D1::ColorF(GetRValue(ht) / 255.f, GetGValue(ht) / 255.f, GetBValue(ht) / 255.f), selText.put());
                 for (UINT32 i = 0; i < std::min<UINT32>(count, ARRAYSIZE(ranges)); ++i)
                 {
                     const auto& r = ranges[i];
-                    const float top = (RunLineHeight - CaretHeight) / 2;
-                    dc->FillRectangle(D2D1::RectF(r.left - inputScroll_, top, r.left + r.width - inputScroll_, top + CaretHeight), sel.get());
+                    dc->FillRectangle(D2D1::RectF(r.left - inputScroll_, 0, r.left + r.width - inputScroll_, inputLineHeight_), sel.get());
                 }
+                inputLayout_->SetDrawingEffect(selText.get(), range);
             }
             winrt::com_ptr<ID2D1SolidColorBrush> text;
-            dc->CreateSolidColorBrush(D2DColor(pal.text, empty ? 0.46f : 0.94f), text.put());
+            dc->CreateSolidColorBrush(empty ? D2DColor(pal.placeholder, pal.placeholderAlpha) : D2DColor(pal.inputText), text.put());
             dc->DrawTextLayout({ -inputScroll_, 0.f }, inputLayout_.get(), text.get());
         });
 
@@ -576,12 +792,24 @@ namespace dm
         }
     }
 
+    float Scene::RowHeight(int index) const
+    {
+        return rows_[index].command ? RowCommandHeight : RowAppHeight;
+    }
+
+    float Scene::RowTop(int index) const
+    {
+        float y = ResultsPad;
+        for (int i = 0; i < index; ++i)
+        {
+            y += RowHeight(i);
+        }
+        return y;
+    }
+
+    // .sb-results and .rs-row.
     void Scene::RenderResults()
     {
-        if (rows_.empty())
-        {
-            return;
-        }
         const float W = ResultsWidth();
         const float H = ResultsHeight();
         const auto px = PxSize(W, H, scale_);
@@ -602,55 +830,94 @@ namespace dm
         Paint(resultsSurface_, px.Width, px.Height, [&](ID2D1DeviceContext* dc) {
             UseDips(dc, scale_);
             dc->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
-            winrt::com_ptr<ID2D1SolidColorBrush> rowBrush, title, subtitle, highlight;
-            dc->CreateSolidColorBrush(D2DColor(pal.text, pal.rowAlpha), rowBrush.put());
-            dc->CreateSolidColorBrush(D2DColor(pal.text, 0.94f), title.put());
-            dc->CreateSolidColorBrush(D2DColor(pal.text, 0.56f), subtitle.put());
+            winrt::com_ptr<ID2D1SolidColorBrush> rowBrush, title, subtitle, key, highlight, commandBox;
+            dc->CreateSolidColorBrush(D2DColor(pal.row, pal.rowAlpha), rowBrush.put());
+            dc->CreateSolidColorBrush(D2DColor(pal.resultsText), title.put());
+            dc->CreateSolidColorBrush(D2DColor(pal.resultsText, 0.5f), subtitle.put());
+            dc->CreateSolidColorBrush(D2DColor(pal.resultsText, 0.55f), key.put());
             dc->CreateSolidColorBrush(D2DColor(pal.highlight), highlight.put());
+            dc->CreateSolidColorBrush(D2D1::ColorF(127 / 255.f, 127 / 255.f, 127 / 255.f, 0.18f), commandBox.put());
 
-            const float textX = ResultsPad + ResultTextLeft;
-            const float textW = std::max(1.f, W - ResultsPad - 10.f - textX);
+            // The key column holds "↵" on the selected row only.
+            const wchar_t enter[] = L"↵";
+            winrt::com_ptr<IDWriteTextLayout> keyLayout;
+            dwrite_->CreateTextLayout(enter, 1, keyFormat_.get(), 1000.f, KeyFontSize * LineHeightFactor, keyLayout.put());
+            DWRITE_TEXT_METRICS km{};
+            keyLayout->GetMetrics(&km);
+
+            const float rowLeft = ResultsPad, rowRight = W - ResultsPad;
             for (int i = 0; i < n; ++i)
             {
                 const ResultRow& row = rows_[i];
-                const float top = ResultsPad + i * ResultsRowHeight;
-                if (i == selected_)
+                const float top = RowTop(i), rowH = RowHeight(i);
+                const bool on = i == selected_;
+                if (on)
                 {
-                    const D2D1_RECT_F r = D2D1::RectF(ResultsPad, top, W - ResultsPad, top + ResultsRowHeight);
-                    dc->FillRoundedRectangle(D2D1::RoundedRect(r, 8.f, 8.f), rowBrush.get());
+                    dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(rowLeft, top, rowRight, top + rowH), RowRadius, RowRadius),
+                                             rowBrush.get());
                 }
 
-                const float iconX = ResultsPad + 10.f;
-                const float iconY = top + (ResultsRowHeight - ResultIcon) / 2;
+                const float contentTop = top + RowPadY, contentH = rowH - RowPadY * 2;
+                const float iconX = rowLeft + RowPadX, iconY = contentTop + (contentH - ResultIcon) / 2;
                 const D2D1_RECT_F iconRect = D2D1::RectF(iconX, iconY, iconX + ResultIcon, iconY + ResultIcon);
                 if (row.command)
                 {
-                    dc->DrawText(CommandGlyph, 1, glyphFormat_.get(), iconRect, title.get());
+                    dc->FillRoundedRectangle(D2D1::RoundedRect(iconRect, CommandIconRadius, CommandIconRadius), commandBox.get());
+                    // The "run" icon: 16 px, stroke 1.4, round caps and joins.
+                    winrt::com_ptr<ID2D1PathGeometry> path;
+                    d2dFactory_->CreatePathGeometry(path.put());
+                    winrt::com_ptr<ID2D1GeometrySink> sink;
+                    path->Open(sink.put());
+                    const float gx = iconX + 4, gy = iconY + 4;
+                    sink->BeginFigure({ gx + 3, gy + 4 }, D2D1_FIGURE_BEGIN_HOLLOW);
+                    sink->AddLine({ gx + 7, gy + 8 });
+                    sink->AddLine({ gx + 3, gy + 12 });
+                    sink->EndFigure(D2D1_FIGURE_END_OPEN);
+                    sink->BeginFigure({ gx + 8.5f, gy + 12 }, D2D1_FIGURE_BEGIN_HOLLOW);
+                    sink->AddLine({ gx + 13, gy + 12 });
+                    sink->EndFigure(D2D1_FIGURE_END_OPEN);
+                    sink->Close();
+                    winrt::com_ptr<ID2D1StrokeStyle> stroke;
+                    d2dFactory_->CreateStrokeStyle(D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND,
+                                                                               D2D1_CAP_STYLE_ROUND, D2D1_LINE_JOIN_ROUND),
+                                                   nullptr, 0, stroke.put());
+                    dc->DrawGeometry(path.get(), title.get(), 1.4f, stroke.get());
                 }
                 else if (ID2D1Bitmap* bmp = BitmapFor(row.icon.get(), dc))
                 {
                     dc->DrawBitmap(bmp, &iconRect, 1.f, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
                 }
 
-                const bool twoLines = !row.subtitle.empty();
+                const float keyW = on ? km.widthIncludingTrailingWhitespace : 0.f;
+                const float textX = rowLeft + RowPadX + RowIconColumn + RowGap;
+                const float textW = std::max(1.f, rowRight - RowPadX - keyW - RowGap - textX);
+                const float textH = row.command ? TitleLineHeight : TitleLineHeight + SubtitleLineHeight;
+                const float textTop = contentTop + (contentH - textH) / 2;
+
                 winrt::com_ptr<IDWriteTextLayout> t;
                 dwrite_->CreateTextLayout(row.title.c_str(), static_cast<UINT32>(row.title.size()), titleFormat_.get(), textW,
-                                          twoLines ? 18.f : ResultsRowHeight, t.put());
+                                          TitleLineHeight, t.put());
                 if (t && row.highlightStart >= 0 && row.highlightLength > 0)
                 {
                     const DWRITE_TEXT_RANGE range{ static_cast<UINT32>(row.highlightStart), static_cast<UINT32>(row.highlightLength) };
-                    t->SetFontWeight(DWRITE_FONT_WEIGHT_SEMI_BOLD, range);
+                    t->SetFontWeight(DWRITE_FONT_WEIGHT_BOLD, range);
                     t->SetDrawingEffect(highlight.get(), range);
                 }
                 if (t)
                 {
-                    dc->DrawTextLayout({ textX, twoLines ? top + 4.f : top }, t.get(), title.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                    dc->DrawTextLayout({ textX, textTop }, t.get(), title.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
                 }
-                if (twoLines)
+                if (!row.command)
                 {
-                    const D2D1_RECT_F sr = D2D1::RectF(textX, top + 21.f, textX + textW, top + 37.f);
+                    const D2D1_RECT_F sr = D2D1::RectF(textX, textTop + TitleLineHeight, textX + textW,
+                                                       textTop + TitleLineHeight + SubtitleLineHeight);
                     dc->DrawText(row.subtitle.c_str(), static_cast<UINT32>(row.subtitle.size()), subtitleFormat_.get(), sr,
                                  subtitle.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                }
+                if (on)
+                {
+                    const float kh = KeyFontSize * LineHeightFactor;
+                    dc->DrawTextLayout({ rowRight - RowPadX - keyW, contentTop + (contentH - kh) / 2 }, keyLayout.get(), key.get());
                 }
             }
         });
@@ -667,24 +934,33 @@ namespace dm
         }
     }
 
-    void Scene::SetScale(float scale)
+    // Draws all surfaces again, for example after a change of the display scale or the theme.
+    void Scene::Rerender()
     {
-        scale_ = scale;
-        RenderOrb();
+        track_.backdrop.Brush(BackdropBrush(track_.saturate));
+        results_.backdrop.Brush(BackdropBrush(results_.saturate));
+        track_.shadow.key.clear();
+        results_.shadow.key.clear();
+        orb_.key.clear();
         for (auto& v : items_)
         {
+            v.art.key.clear();
             if (v.src.widget)
             {
                 RenderLabel(v, false);
                 RenderLabel(v, true);
             }
-            else
-            {
-                v.iconBrush.Surface(RenderIcon(v.src.icon.get()));
-            }
         }
         RenderInput();
         RenderResults();
+    }
+
+    // ---------------------------------------------------------------- state
+
+    void Scene::SetScale(float scale)
+    {
+        scale_ = scale;
+        Rerender();
     }
 
     void Scene::SetAppearance(Theme theme, Material material, CollapsedStyle style, SpringParams spring)
@@ -696,16 +972,7 @@ namespace dm
         spring_ = spring;
         if (recolor && inputSurface_)
         {
-            RenderInput();
-            RenderResults();
-            for (auto& v : items_)
-            {
-                if (v.src.widget)
-                {
-                    RenderLabel(v, false);
-                    RenderLabel(v, true);
-                }
-            }
+            Rerender();
         }
     }
 
@@ -722,54 +989,39 @@ namespace dm
             v.src = std::move(src);
             auto& c = compositor_;
             v.root = c.CreateContainerVisual();
-            v.box = c.CreateContainerVisual();
-            v.clip = c.CreateRoundedRectangleGeometry();
-            v.box.Clip(c.CreateGeometricClip(v.clip));
-            v.plateBrush = c.CreateColorBrush();
-            v.plate = c.CreateSpriteVisual();
-            v.plate.Brush(v.plateBrush);
-            v.ringGeom = c.CreateRoundedRectangleGeometry();
-            v.ringBrush = c.CreateColorBrush();
-            auto shape = c.CreateSpriteShape(v.ringGeom);
-            shape.StrokeBrush(v.ringBrush);
-            shape.StrokeThickness(1.f);
-            v.ring = c.CreateShapeVisual();
-            v.ring.Shapes().Append(shape);
-
-            auto box = v.box.Children();
-            auto root = v.root.Children();
-            box.InsertAtTop(v.plate);
+            v.slotClip = c.CreateInsetClip();
             if (v.src.widget)
             {
+                v.box = c.CreateContainerVisual();
+                v.clip = c.CreateRoundedRectangleGeometry();
+                v.box.Clip(c.CreateGeometricClip(v.clip));
+                v.plateBrush = c.CreateColorBrush();
+                v.plate = c.CreateSpriteVisual();
+                v.plate.Brush(v.plateBrush);
+                v.ringGeom = c.CreateRoundedRectangleGeometry();
+                v.ringBrush = c.CreateColorBrush();
+                v.ringShape = c.CreateSpriteShape(v.ringGeom);
+                v.ringShape.StrokeBrush(v.ringBrush);
+                v.ring = c.CreateShapeVisual();
+                v.ring.Shapes().Append(v.ringShape);
                 v.labelBrush = c.CreateSurfaceBrush();
                 v.labelBrush.Stretch(wuc::CompositionStretch::None);
                 v.labelBrush.HorizontalAlignmentRatio(0.f);
                 v.labelBrush.VerticalAlignmentRatio(0.f);
                 v.label = c.CreateSpriteVisual();
                 v.label.Brush(v.labelBrush);
+                auto box = v.box.Children();
+                box.InsertAtTop(v.plate);
+                box.InsertAtTop(v.ring);  // Inset shadow: below the text.
                 box.InsertAtTop(v.label);
+                v.root.Children().InsertAtTop(v.box);
             }
             else
             {
-                v.shadow = c.CreateSpriteVisual();
-                v.shadow.Brush(SoftBrush({ 0, 0, 0 }));
-                v.glow = c.CreateSpriteVisual();
-                v.glow.Brush(SoftBrush(v.src.main));
-                v.iconBrush = c.CreateSurfaceBrush(RenderIcon(v.src.icon.get()));
-                v.iconBrush.Stretch(wuc::CompositionStretch::Uniform);
-                v.icon = c.CreateSpriteVisual();
-                v.icon.Brush(v.iconBrush);
-                v.dim = c.CreateSpriteVisual();
-                v.dim.Brush(c.CreateColorBrush({ 255, 0, 0, 0 }));
-                box.InsertAtTop(v.icon);
-                box.InsertAtTop(v.dim);
-                root.InsertAtTop(v.shadow);
-                root.InsertAtTop(v.glow);
+                v.art = CreateDrawn();
+                v.root.Children().InsertAtTop(v.art.sprite);
             }
-            box.InsertAtTop(v.ring);
-            root.InsertAtTop(v.box);
             itemsLayer_.Children().InsertAtTop(v.root);
-
             v.press.x = v.press.target = 1.f;
             items_.push_back(std::move(v));
         }
@@ -806,6 +1058,7 @@ namespace dm
         if (open)
         {
             hover_ = pinned_ = -1;
+            runOpenedAt_ = time_;
         }
         RestartCaret();
     }
@@ -823,6 +1076,10 @@ namespace dm
     void Scene::SetResults(std::vector<ResultRow> rows, int selected)
     {
         rows_ = std::move(rows);
+        if (rows_.size() > static_cast<size_t>(ResultsMaxRows))
+        {
+            rows_.resize(ResultsMaxRows);
+        }
         selected_ = selected;
         RenderResults();
     }
@@ -835,6 +1092,8 @@ namespace dm
             RenderResults();
         }
     }
+
+    // ---------------------------------------------------------------- layout
 
     void Scene::Targets(int index, int hovered, float& w, float& h, float& tone) const
     {
@@ -898,39 +1157,54 @@ namespace dm
         return w;
     }
 
+    float Scene::TrackLeft() const
+    {
+        return (windowWidth_ - TrackWidth()) / 2;
+    }
+
+    // width: max(100%, 380px) of the toolbar box.
     float Scene::ResultsWidth() const
     {
-        return std::max(ResultsMinWidth, PadX * 2 + OrbBlock + RunWidth);
+        return std::max(ResultsMinWidth, TrackWidth());
     }
 
     float Scene::ResultsHeight() const
     {
-        const int n = std::min(static_cast<int>(rows_.size()), ResultsMaxRows);
-        return ResultsPad * 2 + n * ResultsRowHeight;
+        float h = ResultsPad * 2;
+        for (int i = 0; i < static_cast<int>(rows_.size()); ++i)
+        {
+            h += RowHeight(i);
+        }
+        return h;
     }
 
     float Scene::WindowWidth() const
     {
-        float m = std::max(TrackWidthFor(-1), ResultsWidth());
+        float m = std::max({ TrackWidthFor(-1), ResultsMinWidth, PadX * 2 + OrbBlock + RunWidth });
         for (int i = 0; i < static_cast<int>(items_.size()); ++i)
         {
             m = std::max(m, TrackWidthFor(i));
         }
-        return m + OvershootMargin * 2;
+        return m + OvershootMargin * 2 + ShadowSide * 2;
+    }
+
+    float Scene::TopMargin()
+    {
+        return ShadowTop;
+    }
+
+    float Scene::RunContentHeight()
+    {
+        return BarHeightHover + ResultsGap + ResultsPad * 2 + (ResultsMaxRows - 1) * RowAppHeight + RowCommandHeight;
     }
 
     float Scene::WindowHeight() const
     {
-        if (!RunVisible())
+        if (RunVisible())
         {
-            return BarHeightHover;
+            return ShadowTop + RunContentHeight() + ResultsShadowBottom;
         }
-        return RunWindowHeight();
-    }
-
-    float Scene::RunWindowHeight()
-    {
-        return BarHeight + ResultsGap + ResultsPad * 2 + ResultsMaxRows * ResultsRowHeight + OvershootMargin;
+        return ShadowTop + BarHeightHover + ShadowBottom;
     }
 
     float Scene::RadiusPx() const
@@ -942,8 +1216,15 @@ namespace dm
     {
         const float w = TrackWidthFor(-1);
         const float x0 = (windowWidth_ - w) / 2;
-        return { static_cast<LONG>(std::floor(x0 * scale_)), 0,
-                 static_cast<LONG>(std::ceil((x0 + w) * scale_)), static_cast<LONG>(std::ceil(BarHeight * scale_)) };
+        return { static_cast<LONG>(std::floor(x0 * scale_)), static_cast<LONG>(std::floor(ShadowTop * scale_)),
+                 static_cast<LONG>(std::ceil((x0 + w) * scale_)), static_cast<LONG>(std::ceil((ShadowTop + BarHeight) * scale_)) };
+    }
+
+    RECT Scene::InteractiveRect() const
+    {
+        const float bottom = ShadowTop + (RunVisible() ? RunContentHeight() : BarHeightHover);
+        return { static_cast<LONG>(std::floor(ShadowSide * scale_)), static_cast<LONG>(std::floor(ShadowTop * scale_)),
+                 static_cast<LONG>(std::ceil((windowWidth_ - ShadowSide) * scale_)), static_cast<LONG>(std::ceil(bottom * scale_)) };
     }
 
     int Scene::HitTestItem(POINT p) const
@@ -952,9 +1233,9 @@ namespace dm
         {
             return -1;
         }
-        const float x = p.x / scale_, y = p.y / scale_;
+        const float x = p.x / scale_, y = p.y / scale_ - ShadowTop;
         const float trackW = TrackWidth();
-        const float x0 = (windowWidth_ - trackW) / 2;
+        const float x0 = TrackLeft();
         if (y < 0 || y > barHeight_.x || x < x0 || x > x0 + trackW)
         {
             return -1;
@@ -974,9 +1255,8 @@ namespace dm
 
     bool Scene::HitTestOrb(POINT p) const
     {
-        const float x = p.x / scale_, y = p.y / scale_;
-        const float x0 = (windowWidth_ - TrackWidth()) / 2;
-        const float cx = x0 + PadX + OrbMarginLeft + Orb / 2;
+        const float x = p.x / scale_, y = p.y / scale_ - ShadowTop;
+        const float cx = TrackLeft() + PadX + OrbMarginLeft + Orb / 2;
         const float cy = barHeight_.x / 2;
         const float r = Orb / 2 + 3;
         return (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r;
@@ -984,10 +1264,9 @@ namespace dm
 
     bool Scene::HitTestTrack(POINT p) const
     {
-        const float x = p.x / scale_, y = p.y / scale_;
-        const float trackW = TrackWidth();
-        const float x0 = (windowWidth_ - trackW) / 2;
-        return y >= 0 && y <= barHeight_.x && x >= x0 && x <= x0 + trackW;
+        const float x = p.x / scale_, y = p.y / scale_ - ShadowTop;
+        const float x0 = TrackLeft();
+        return y >= 0 && y <= barHeight_.x && x >= x0 && x <= x0 + TrackWidth();
     }
 
     int Scene::HitTestResult(POINT p) const
@@ -996,21 +1275,22 @@ namespace dm
         {
             return -1;
         }
-        const float x = p.x / scale_, y = p.y / scale_;
-        const float W = ResultsWidth();
-        const float left = (windowWidth_ - W) / 2;
-        const float top = BarHeight + ResultsGap;
-        if (x < left + ResultsPad || x > left + W - ResultsPad)
+        const float x = p.x / scale_, y = p.y / scale_ - ShadowTop;
+        const float left = TrackLeft();
+        const float ry = y - (barHeight_.x + ResultsGap);
+        if (x < left + ResultsPad || x > left + ResultsWidth() - ResultsPad)
         {
             return -1;
         }
-        const float ry = y - top - ResultsPad;
-        const int n = std::min(static_cast<int>(rows_.size()), ResultsMaxRows);
-        if (ry < 0 || ry >= n * ResultsRowHeight)
+        for (int i = 0; i < static_cast<int>(rows_.size()); ++i)
         {
-            return -1;
+            const float top = RowTop(i);
+            if (ry >= top && ry < top + RowHeight(i))
+            {
+                return i;
+            }
         }
-        return static_cast<int>(ry / ResultsRowHeight);
+        return -1;
     }
 
     int Scene::HitTestInput(POINT p) const
@@ -1019,9 +1299,8 @@ namespace dm
         {
             return -1;
         }
-        const float x = p.x / scale_, y = p.y / scale_;
-        const float x0 = (windowWidth_ - TrackWidth()) / 2;
-        const float fieldLeft = x0 + PadX + OrbBlock;
+        const float x = p.x / scale_, y = p.y / scale_ - ShadowTop;
+        const float fieldLeft = TrackLeft() + PadX + OrbBlock;
         if (y < 0 || y > barHeight_.x || x < fieldLeft || x > fieldLeft + RunWidth)
         {
             return -1;
@@ -1032,25 +1311,25 @@ namespace dm
         }
         BOOL trailing = FALSE, inside = FALSE;
         DWRITE_HIT_TEST_METRICS m{};
-        inputLayout_->HitTestPoint(x - fieldLeft - RunTextLeft + inputScroll_, RunLineHeight / 2, &trailing, &inside, &m);
+        inputLayout_->HitTestPoint(x - fieldLeft - RunTextLeft + inputScroll_, inputLineHeight_ / 2, &trailing, &inside, &m);
         return static_cast<int>(m.textPosition + (trailing ? m.length : 0));
     }
 
     POINT Scene::CaretClientPx() const
     {
-        const float x0 = (windowWidth_ - TrackWidth()) / 2;
-        const float x = x0 + PadX + OrbBlock + RunTextLeft + caretX_ - inputScroll_;
-        const float y = (barHeight_.x - CaretHeight) / 2;
+        const float x = TrackLeft() + PadX + OrbBlock + RunTextLeft + caretX_ - inputScroll_;
+        const float y = ShadowTop + (barHeight_.x - inputLineHeight_) / 2;
         return { static_cast<LONG>(std::lround(x * scale_)), static_cast<LONG>(std::lround(y * scale_)) };
     }
 
     int Scene::CaretHeightPx() const
     {
-        return static_cast<int>(std::lround(CaretHeight * scale_));
+        return static_cast<int>(std::lround(inputLineHeight_ * scale_));
     }
 
     bool Scene::Step(float dt)
     {
+        time_ += dt;
         const int hovered = runOpen_ ? -1 : pinned_ >= 0 ? pinned_ : hover_;
         for (int i = 0; i < static_cast<int>(items_.size()); ++i)
         {
@@ -1064,12 +1343,13 @@ namespace dm
                 v.fresh = false;
             }
         }
-        barHeight_.target = hovered >= 0 ? BarHeightHover : BarHeight;
-        orbScale_.target = orbHover_ ? 1.12f : 1.f;
+        barHeight_.target = (hovered >= 0 || runOpen_) ? BarHeightHover : BarHeight;
         run_.target = runOpen_ ? 1.f : 0.f;
         vis_.target = visible_ ? 1.f : 0.f;
+        orbScale_.Set(orbHover_ ? 1.12f : 1.f, time_);
+        orbGlow_.Set(orbHover_ ? 1.f : 0.f, time_);
 
-        std::vector<Spring*> all{ &barHeight_, &orbScale_, &run_, &vis_ };
+        std::vector<Spring*> all{ &barHeight_, &run_, &vis_ };
         for (auto& v : items_)
         {
             all.insert(all.end(), { &v.w, &v.h, &v.tone, &v.press });
@@ -1093,7 +1373,8 @@ namespace dm
                 s->Snap();
             }
         }
-        return !done;
+        // The orb pulses while the run box is open, so frames continue.
+        return !done || orbScale_.Running(time_) || orbGlow_.Running(time_) || runOpen_;
     }
 
     void Scene::Apply()
@@ -1102,61 +1383,85 @@ namespace dm
         const Palette& pal = PaletteFor(theme_);
         const float trackW = TrackWidth();
         const float bh = barHeight_.x;
-        const float x0 = (windowWidth_ - trackW) / 2;
+        const float x0 = TrackLeft();
         const float r = std::max(0.f, run_.x);
         const float ro = Clamp01(run_.x);
 
-        // Visibility. The scale starts at 0.7, like a menu that opens.
+        // Visibility. The scale starts at 0.7, like the prototype.
         const float vis = std::max(0.f, vis_.x);
         root_.Opacity(Clamp01(vis));
         root_.Scale({ 0.7f + 0.3f * vis, 0.7f + 0.3f * vis, 1 });
-        root_.CenterPoint(scaleFromCursor_ ? float3{ (x0 + 24.f) * s, 0, 0 } : float3{ windowWidth_ / 2 * s, BarHeight / 2 * s, 0 });
+        root_.CenterPoint(scaleFromCursor_ ? float3{ (x0 + 24.f) * s, ShadowTop * s, 0 }
+                                           : float3{ (x0 + trackW / 2) * s, (ShadowTop + bh / 2) * s, 0 });
+        stage_.Offset({ 0, ShadowTop * s, 0 });
 
-        track_.root.Offset({ x0 * s, 0, 0 });
-        LayoutPanel(track_, trackW * s, bh * s, Radius * s);
+        // The toolbar box.
+        LayoutPanel(track_, x0, 0, trackW, bh,
+                    { material_ == Material::Acrylic ? pal.tintAcrylic : pal.tintSolid, pal.border,
+                      { 0, 10, 30, 0, { 0, 0, 0, pal.trackShadow } }, Radius });
 
-        const float2 orbSize = orb_.Size();
-        orb_.Offset({ (PadX + OrbMarginLeft + Orb / 2) * s - orbSize.x / 2, bh / 2 * s - orbSize.y / 2, 0 });
-        orb_.CenterPoint({ orbSize.x / 2, orbSize.y / 2, 0 });
-        orb_.Scale({ orbScale_.x, orbScale_.x, 1 });
+        // The orb, with its CSS transitions and the pulse of the run box.
+        float pulse = 0.f;
+        if (runOpen_)
+        {
+            const float phase = static_cast<float>(std::fmod(time_ - runOpenedAt_, static_cast<double>(PulsePeriod)));
+            const float half = PulsePeriod / 2;
+            pulse = phase < half ? EaseInOut(phase / half) : 1.f - EaseInOut((phase - half) / half);
+        }
+        RenderOrb(x0 + PadX + OrbMarginLeft + Orb / 2, bh / 2, orbGlow_.Value(time_), pulse);
 
         // Run box.
         runBox_.IsVisible(r > 0.002f);
         runBox_.Offset({ (PadX + OrbBlock) * s, 0, 0 });
         runBox_.Size({ r * RunWidth * s, bh * s });
         runBox_.Opacity(ro);
-        input_.Offset({ std::round(RunTextLeft * s), std::round((bh - RunLineHeight) / 2 * s), 0 });
-        caretVisual_.Offset({ std::round((RunTextLeft + caretX_ - inputScroll_) * s), std::round((bh - CaretHeight) / 2 * s), 0 });
-        caretVisual_.Size({ std::max(1.f, std::round(CaretWidth * s)), std::round(CaretHeight * s) });
-        caretBrush_.Color(ToColor(pal.text, 0.94f));
+        input_.Offset({ std::round(RunTextLeft * s), std::round((bh - inputLineHeight_) / 2 * s), 0 });
+        caretVisual_.Offset({ std::round((RunTextLeft + caretX_ - inputScroll_) * s), std::round((bh - inputLineHeight_) / 2 * s), 0 });
+        caretVisual_.Size({ std::max(1.f, std::round(CaretWidth * s)), std::round(inputLineHeight_ * s) });
+        caretBrush_.Color(ToColor(pal.caret, 1.f));
 
-        // Results.
-        const bool showResults = r > 0.002f && !rows_.empty();
-        results_.root.IsVisible(showResults);
-        if (showResults)
+        // Results: shown at once when the run box opens, like the prototype.
+        results_.root.IsVisible(runOpen_);
+        results_.shadow.sprite.IsVisible(runOpen_);
+        if (runOpen_)
         {
-            const float W = ResultsWidth(), H = ResultsHeight();
-            results_.root.Offset({ std::round((windowWidth_ - W) / 2 * s), (BarHeight + ResultsGap - 6.f * (1.f - ro)) * s, 0 });
-            LayoutPanel(results_, W * s, H * s, ResultsRadius * s);
-            results_.root.Opacity(ro * ro);
+            LayoutPanel(results_, x0, bh + ResultsGap, ResultsWidth(), ResultsHeight(),
+                        { pal.resultsTint, pal.resultsBorder, { 0, 14, 40, 0, { 0, 0, 0, pal.resultsShadow } }, ResultsRadius });
         }
 
-        // Items.
+        // Items. While the run box is open, each slot clips its item.
         const float keep = 1.f - ro;
         itemsLayer_.IsVisible(keep > 0.001f);
+        itemsLayer_.Offset({ x0 * s, 0, 0 });
         float cx = PadX + OrbBlock + r * RunWidth;
         for (auto& v : items_)
         {
             const float w = std::max(0.f, v.w.x), h = std::max(0.f, v.h.x);
             const float slot = (w + Gap) * keep;
             const float centerX = cx + slot / 2;
-            cx += slot;
             v.root.Opacity(keep);
+            if (ro > 0.f)
+            {
+                v.root.Size({ trackW * s, bh * s });
+                v.slotClip.LeftInset(cx * s);
+                v.slotClip.RightInset(std::max(0.f, (trackW - cx - slot) * s));
+                v.root.Clip(v.slotClip);
+            }
+            else
+            {
+                v.root.Clip(nullptr);
+            }
+            cx += slot;
+
+            if (!v.src.widget)
+            {
+                RenderItem(v, centerX, bh / 2, bh);
+                continue;
+            }
 
             const float W = w * s, H = h * s;
             const float left = (centerX - w / 2) * s, top = (bh / 2 - h / 2) * s;
             const float rr = ItemRadius(w, h) * s;
-
             v.box.Offset({ left, top, 0 });
             v.box.Size({ W, H });
             v.box.CenterPoint({ W / 2, H / 2, 0 });
@@ -1164,110 +1469,41 @@ namespace dm
             v.clip.Size({ W, H });
             v.clip.CornerRadius({ rr, rr });
             v.plate.Size({ W, H });
-            if (v.dim)
-            {
-                v.dim.Size({ W, H });
-            }
             v.ring.Size({ W, H });
-            v.ringGeom.Offset({ 0.5f, 0.5f });
-            v.ringGeom.Size({ std::max(0.f, W - 1), std::max(0.f, H - 1) });
-            v.ringGeom.CornerRadius({ std::max(0.f, rr - 0.5f), std::max(0.f, rr - 0.5f) });
-
-            if (v.src.widget)
-            {
-                const float t = v.tone.x;
-                const float pa = Clamp01(t - 2.f);
-                const bool chip = !widgetsCollapse_;
-                v.plateBrush.Color(ToColor(chip ? Mix(pal.chip, pal.widgetStops[3], pa) : Stops(pal.widgetStops, t)));
-                v.ringBrush.Color(chip ? pal.chipLine : Color{ 0, 0, 0, 0 });
-
-                // The text color changes once, at the middle of the expansion.
-                const bool chipInk = chip && pa < 0.5f;
-                if (chipInk != v.chipInk)
-                {
-                    v.chipInk = chipInk;
-                    RenderLabel(v, false);
-                    RenderLabel(v, true);
-                }
-                const bool showDetail = v.tone.target >= 3.f;
-                if (showDetail != v.showingDetail)
-                {
-                    v.showingDetail = showDetail;
-                    v.labelBrush.Surface(showDetail ? v.detailSurface : v.briefSurface);
-                }
-                const auto surface = showDetail ? v.detailSurface : v.briefSurface;
-                if (surface)
-                {
-                    const auto px = surface.SizeInt32();
-                    const float lw = static_cast<float>(px.Width), lh = static_cast<float>(px.Height);
-                    v.label.Size({ lw, lh });
-                    v.label.Offset({ std::round((W - lw) / 2), std::round((H - lh) / 2), 0 });
-                }
-                v.label.Opacity(chip ? 1.f : pa * pa);
-                continue;
-            }
+            v.ringShape.StrokeThickness(s);  // inset 0 0 0 1px
+            v.ringGeom.Offset({ s / 2, s / 2 });
+            v.ringGeom.Size({ std::max(0.f, W - s), std::max(0.f, H - s) });
+            v.ringGeom.CornerRadius({ std::max(0.f, rr - s / 2), std::max(0.f, rr - s / 2) });
 
             const float t = v.tone.x;
             const float pa = Clamp01(t - 2.f);
-            const float g = Clamp01(t / 2.f);
-            const float q = 1.f - pa;
-            const Rgb d = v.src.main;
-            const Rgb black{ 0, 0, 0 }, white{ 255, 255, 255 };
-            const CollapsedStyle style = v.src.style.value_or(style_);
+            const bool chip = !widgetsCollapse_;
+            v.plateBrush.Color(ToColor(chip ? Mix(pal.chip, pal.widgetStops[3], pa) : Stops(pal.widgetStops, t)));
+            v.ringBrush.Color(chip ? pal.chipLine : Color{ 0, 0, 0, 0 });
 
-            float iconSize, iconOpacity, dimOpacity, ringAlpha, glowOpacity, glowSpread, shadowOpacity, shadowY;
-            if (style == CollapsedStyle::Glow)
+            // The text color changes once, at the middle of the expansion.
+            const bool chipInk = chip && pa < 0.5f;
+            if (chipInk != v.chipInk)
             {
-                const Rgb stops[4] = { Mix(d, black, 0.12f), d, Mix(d, white, 0.22f), pal.plate };
-                v.plateBrush.Color(ToColor(Stops(stops, t)));
-                iconSize = H * 0.74f;
-                iconOpacity = pa * pa;
-                dimOpacity = 0.f;
-                ringAlpha = 0.3f * q;
-                glowOpacity = std::max((0.5f + 0.4f * g) * q, 0.28f * pa);
-                glowSpread = ((0.5f + 1.5f * g) * q + 2.f * pa) * s;
-                shadowOpacity = 0.32f * pa;
-                shadowY = 6.f * pa * s;
+                v.chipInk = chipInk;
+                RenderLabel(v, false);
+                RenderLabel(v, true);
             }
-            else
+            const bool showDetail = v.tone.target >= 3.f;
+            if (showDetail != v.showingDetail)
             {
-                const Rgb stops[4] = { Mix(d, black, 0.62f), Mix(d, black, 0.48f), Mix(d, black, 0.3f), pal.plate };
-                v.plateBrush.Color(ToColor(Stops(stops, t)));
-                iconSize = H * Lerp(1.3f, 0.74f, pa);
-                iconOpacity = 1.f;
-                dimOpacity = 1.f - Lerp(0.72f, 1.f, std::max(g, pa));
-                ringAlpha = 0.14f * q;
-                glowOpacity = 0.f;
-                glowSpread = 0.f;
-                shadowOpacity = 0.45f * q + 0.32f * pa;
-                shadowY = (2.f + 5.f * pa) * s;
+                v.showingDetail = showDetail;
+                v.labelBrush.Surface(showDetail ? v.detailSurface : v.briefSurface);
             }
-
-            v.icon.Size({ iconSize, iconSize });
-            v.icon.Offset({ (W - iconSize) / 2, (H - iconSize) / 2, 0 });
-            v.icon.Opacity(iconOpacity);
-            v.dim.Opacity(dimOpacity);
-            if (theme_ == Theme::Light && pa > 0.5f)
+            const auto surface = showDetail ? v.detailSurface : v.briefSurface;
+            if (surface)
             {
-                v.ringBrush.Color(ToColor(black, 0.1f * pa));
+                const auto px = surface.SizeInt32();
+                const float lw = static_cast<float>(px.Width), lh = static_cast<float>(px.Height);
+                v.label.Size({ lw, lh });
+                v.label.Offset({ std::round((W - lw) / 2), std::round((H - lh) / 2), 0 });
             }
-            else
-            {
-                v.ringBrush.Color(ToColor(white, ringAlpha));
-            }
-
-            const float pressScale = v.press.x;
-            const float bw = W * pressScale, bhPx = H * pressScale;
-            const float bl = left + (W - bw) / 2, bt = top + (H - bhPx) / 2;
-            const float gp = SoftPadPx + glowSpread;
-            v.glow.Offset({ bl - gp, bt - gp, 0 });
-            v.glow.Size({ bw + gp * 2, bhPx + gp * 2 });
-            v.glow.Opacity(glowOpacity);
-            v.glow.IsVisible(glowOpacity > 0.001f);
-            v.shadow.Offset({ bl - SoftPadPx, bt - SoftPadPx + shadowY, 0 });
-            v.shadow.Size({ bw + SoftPadPx * 2, bhPx + SoftPadPx * 2 });
-            v.shadow.Opacity(shadowOpacity);
-            v.shadow.IsVisible(shadowOpacity > 0.001f);
+            v.label.Opacity(chip ? 1.f : pa * pa);
         }
     }
 }

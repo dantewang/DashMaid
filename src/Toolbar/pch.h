@@ -25,6 +25,7 @@
 #include <dcomp.h>
 #include <DispatcherQueue.h>
 #include <windows.ui.composition.interop.h>
+#include <windows.graphics.effects.interop.h>
 
 #include <winrt/base.h>
 #include <winrt/Windows.Foundation.h>
@@ -33,6 +34,7 @@
 #include <winrt/Windows.Data.Json.h>
 #include <winrt/Windows.Graphics.h>
 #include <winrt/Windows.Graphics.DirectX.h>
+#include <winrt/Windows.Graphics.Effects.h>
 #include <winrt/Windows.System.h>
 #include <winrt/Windows.UI.h>
 #include <winrt/Windows.UI.Composition.h>

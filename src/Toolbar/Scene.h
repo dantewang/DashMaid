@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Config.h"
+#include "Paint.h"
 #include "Spring.h"
 
 namespace dm
@@ -24,9 +25,13 @@ namespace dm
         bool command = false;
     };
 
-    // Owns the Composition visual tree of the toolbar window.
+    // Owns the Composition visual tree of the toolbar.
     // The layout runs on the CPU with springs. Apply() writes the current
     // values to the visuals. Hit tests use the same current values.
+    // The look follows the CSS of the prototype: lengths are CSS px (DIPs),
+    // shadows are CSS box-shadows, and timing follows CSS transitions.
+    // The window has a margin on each side for the shadows. Client
+    // coordinates include this margin.
     class Scene
     {
     public:
@@ -45,11 +50,10 @@ namespace dm
         void SetOrbHover(bool hover) { orbHover_ = hover; }
 
         // Shows or hides the whole toolbar with a scale and fade animation.
-        // The scale origin is the orb when "fromCursor" is true, else the toolbar center.
+        // The scale origin is near the orb when "fromCursor" is true, else the toolbar center.
         void SetVisible(bool visible, bool fromCursor);
         void SnapVisible(bool visible);
         bool VisibleNow() const { return visible_ || vis_.x > 0.003f; }
-        static float RunWindowHeight();  // DIPs
 
         void SetRunOpen(bool open);
         bool RunVisible() const { return runOpen_ || run_.x > 0.002f; }
@@ -57,13 +61,16 @@ namespace dm
         void SetResults(std::vector<ResultRow> rows, int selected);
         void SetSelected(int selected);
 
-        // Advances the springs. Returns true while a value still moves.
+        // Advances the springs and transitions. Returns true while something still moves.
         bool Step(float dt);
         void Apply();
 
         float WindowWidth() const;   // DIPs
         float WindowHeight() const;  // DIPs
+        static float TopMargin();    // DIPs above the toolbar, for the shadows.
+        static float RunContentHeight();  // DIPs from the toolbar top to the bottom of the results.
         RECT RestTrackRect() const;  // Client pixels.
+        RECT InteractiveRect() const;  // Client pixels: the area that takes input while the toolbar is open.
         float RadiusPx() const;
         int HitTestItem(POINT clientPx) const;
         bool HitTestOrb(POINT clientPx) const;
@@ -74,26 +81,35 @@ namespace dm
         int CaretHeightPx() const;
 
     private:
+        // A surface that is drawn again only when its key changes.
+        struct Drawn
+        {
+            winrt::Windows::UI::Composition::SpriteVisual sprite{ nullptr };
+            winrt::Windows::UI::Composition::CompositionSurfaceBrush brush{ nullptr };
+            winrt::Windows::UI::Composition::CompositionDrawingSurface surface{ nullptr };
+            std::vector<float> key;
+        };
+
         struct ItemVisual
         {
             SceneItem src;
-            winrt::Windows::UI::Composition::ContainerVisual root{ nullptr };
-            winrt::Windows::UI::Composition::SpriteVisual shadow{ nullptr };
-            winrt::Windows::UI::Composition::SpriteVisual glow{ nullptr };
+            winrt::Windows::UI::Composition::ContainerVisual root{ nullptr };  // Slot. Clips while the run box is open.
+            winrt::Windows::UI::Composition::InsetClip slotClip{ nullptr };
+            Spring w, h, tone, press;
+            bool fresh = true;
+
+            // Apps: one surface with the shadows, the plate, and the icon.
+            Drawn art;
+
+            // Widgets.
             winrt::Windows::UI::Composition::ContainerVisual box{ nullptr };
             winrt::Windows::UI::Composition::CompositionRoundedRectangleGeometry clip{ nullptr };
             winrt::Windows::UI::Composition::SpriteVisual plate{ nullptr };
             winrt::Windows::UI::Composition::CompositionColorBrush plateBrush{ nullptr };
-            winrt::Windows::UI::Composition::SpriteVisual icon{ nullptr };
-            winrt::Windows::UI::Composition::CompositionSurfaceBrush iconBrush{ nullptr };
-            winrt::Windows::UI::Composition::SpriteVisual dim{ nullptr };
             winrt::Windows::UI::Composition::ShapeVisual ring{ nullptr };
             winrt::Windows::UI::Composition::CompositionRoundedRectangleGeometry ringGeom{ nullptr };
             winrt::Windows::UI::Composition::CompositionColorBrush ringBrush{ nullptr };
-            Spring w, h, tone, press;
-            bool fresh = true;
-
-            // Widgets only.
+            winrt::Windows::UI::Composition::CompositionSpriteShape ringShape{ nullptr };
             winrt::Windows::UI::Composition::SpriteVisual label{ nullptr };
             winrt::Windows::UI::Composition::CompositionSurfaceBrush labelBrush{ nullptr };
             winrt::Windows::UI::Composition::CompositionDrawingSurface briefSurface{ nullptr };
@@ -104,7 +120,7 @@ namespace dm
             bool showingDetail = false;
         };
 
-        // A rounded panel with the backdrop, the tint, and a border.
+        // A rounded panel with the backdrop, the tint, a border, and a shadow.
         struct Panel
         {
             winrt::Windows::UI::Composition::ContainerVisual root{ nullptr };
@@ -116,30 +132,48 @@ namespace dm
             winrt::Windows::UI::Composition::ShapeVisual border{ nullptr };
             winrt::Windows::UI::Composition::CompositionRoundedRectangleGeometry borderGeom{ nullptr };
             winrt::Windows::UI::Composition::CompositionColorBrush borderBrush{ nullptr };
+            winrt::Windows::UI::Composition::CompositionSpriteShape borderShape{ nullptr };
+            Drawn shadow;
+            float saturate = 1.f;
+        };
+
+        struct PanelStyle
+        {
+            winrt::Windows::UI::Color tint;
+            winrt::Windows::UI::Color border;
+            Shadow shadow;
+            float radius;
         };
 
         void CreateDevice();
         void CreateTextFormats();
-        Panel CreatePanel();
-        void LayoutPanel(Panel& p, float wPx, float hPx, float radiusPx);
+        winrt::com_ptr<IDWriteTextFormat> MakeFormat(const wchar_t* family, DWRITE_FONT_WEIGHT weight, float size,
+                                                    float lineHeight, bool trim);
+        Drawn CreateDrawn();
+        Panel CreatePanel(float saturate);
+        void LayoutPanel(Panel& p, float x, float y, float w, float h, const PanelStyle& style);
+        winrt::Windows::UI::Composition::CompositionBrush BackdropBrush(float saturate);
         template <class F>
         void Paint(winrt::Windows::UI::Composition::CompositionDrawingSurface& surface, int w, int h, F&& paint);
         template <class F>
-        winrt::Windows::UI::Composition::CompositionDrawingSurface Draw(int w, int h, F&& paint);
+        void Redraw(Drawn& d, float wDip, float hDip, std::vector<float> key, F&& paint);
         ID2D1Bitmap* BitmapFor(IWICBitmapSource* src, ID2D1DeviceContext* dc);
-        winrt::Windows::UI::Composition::CompositionDrawingSurface RenderIcon(IWICBitmapSource* icon);
-        winrt::Windows::UI::Composition::CompositionBrush SoftBrush(Rgb color);
-        void RenderOrb();
+        void RenderItem(ItemVisual& v, float cx, float cy, float bh);
+        void RenderOrb(float cx, float cy, float hover, float pulse);
         void RenderLabel(ItemVisual& v, bool detail);
         void RenderInput();
         void RenderResults();
         void RestartCaret();
+        void Rerender();
 
         void Targets(int index, int hovered, float& w, float& h, float& tone) const;
         float TrackWidth() const;
         float TrackWidthFor(int hovered) const;
+        float TrackLeft() const;  // DIPs, from the window left.
         float ResultsWidth() const;
         float ResultsHeight() const;
+        float RowTop(int index) const;
+        float RowHeight(int index) const;
 
         float scale_ = 1.f;
         float windowWidth_ = 0.f;
@@ -154,15 +188,21 @@ namespace dm
         bool runOpen_ = false;
         bool visible_ = true;
         bool scaleFromCursor_ = false;
-        Spring vis_;
         Spring barHeight_;
-        Spring orbScale_;
         Spring run_;
+        Spring vis_;
+
+        // CSS transitions of the orb, and its pulse while the run box is open.
+        double time_ = 0;
+        double runOpenedAt_ = 0;
+        Transition orbScale_{ 0.28f, 0.3f, 1.6f, 0.5f, 1.f, 1.f };
+        Transition orbGlow_{ 0.25f, 0.25f, 0.1f, 0.25f, 1.f, 0.f };
 
         std::wstring inputText_;
         size_t caret_ = 0, selStart_ = 0, selEnd_ = 0;
         float inputScroll_ = 0.f;
         float caretX_ = 0.f;
+        float inputLineHeight_ = 0.f;  // CSS "normal" line height of the input font.
         std::vector<ResultRow> rows_;
         int selected_ = 0;
 
@@ -172,14 +212,16 @@ namespace dm
         winrt::Windows::UI::Composition::CompositionGraphicsDevice graphics_{ nullptr };
         winrt::com_ptr<ID2D1Factory1> d2dFactory_;
         winrt::com_ptr<ID2D1Device> d2dDevice_;
-        winrt::com_ptr<ID2D1DeviceContext> offscreen_;
+        winrt::com_ptr<ID2D1DeviceContext> helper_;  // Records shadow shapes.
         winrt::com_ptr<IDWriteFactory> dwrite_;
         winrt::com_ptr<IDWriteTextFormat> inputFormat_;
         winrt::com_ptr<IDWriteTextFormat> titleFormat_;
         winrt::com_ptr<IDWriteTextFormat> subtitleFormat_;
-        winrt::com_ptr<IDWriteTextFormat> glyphFormat_;
+        winrt::com_ptr<IDWriteTextFormat> keyFormat_;
         winrt::com_ptr<IDWriteTextFormat> widgetFormat_;
         winrt::com_ptr<IDWriteTypography> tabular_;
+        winrt::com_ptr<IDWriteTextLayout> inputLayout_;
+
         // The key stays valid because the entry holds a reference to the source.
         struct CachedBitmap
         {
@@ -187,13 +229,12 @@ namespace dm
             winrt::com_ptr<ID2D1Bitmap> bitmap;
         };
         std::unordered_map<IWICBitmapSource*, CachedBitmap> bitmaps_;
-        winrt::com_ptr<IDWriteTextLayout> inputLayout_;
 
         winrt::Windows::UI::Composition::ContainerVisual root_{ nullptr };
+        winrt::Windows::UI::Composition::ContainerVisual stage_{ nullptr };  // Moved down by the top margin.
         Panel track_;
         winrt::Windows::UI::Composition::ContainerVisual itemsLayer_{ nullptr };
-        winrt::Windows::UI::Composition::SpriteVisual orb_{ nullptr };
-        winrt::Windows::UI::Composition::CompositionSurfaceBrush orbBrush_{ nullptr };
+        Drawn orb_;
 
         winrt::Windows::UI::Composition::ContainerVisual runBox_{ nullptr };
         winrt::Windows::UI::Composition::SpriteVisual input_{ nullptr };
@@ -209,6 +250,5 @@ namespace dm
         winrt::Windows::UI::Composition::CompositionDrawingSurface resultsSurface_{ nullptr };
 
         std::vector<ItemVisual> items_;
-        std::unordered_map<uint32_t, winrt::Windows::UI::Composition::CompositionBrush> softBrushes_;
     };
 }

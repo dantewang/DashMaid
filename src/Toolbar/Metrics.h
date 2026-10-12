@@ -33,26 +33,41 @@ namespace dm::metrics
     constexpr float WidgetFontSize = 13.f;
     constexpr float WidgetLineHeight = 18.f;
 
-    // Run box.
+    // Run box (.sb-run).
     constexpr float RunWidth = 330.f;
     constexpr float RunTextLeft = 12.f;
     constexpr float RunTextRight = 10.f;
-    constexpr float RunLineHeight = 24.f;
     constexpr float RunFontSize = 15.f;
-    constexpr float CaretWidth = 1.5f;
-    constexpr float CaretHeight = 18.f;
+    constexpr float CaretWidth = 1.f;
 
-    // Results under the run box.
+    // Results (.sb-results, .rs-row). Line heights follow "line-height: 1.55".
     constexpr float ResultsGap = 8.f;
     constexpr float ResultsMinWidth = 380.f;
     constexpr float ResultsPad = 6.f;
-    constexpr float ResultsRowHeight = 42.f;
-    constexpr int ResultsMaxRows = 6;
     constexpr float ResultsRadius = 14.f;
+    constexpr int ResultsMaxRows = 6;
+    constexpr float RowPadX = 10.f;
+    constexpr float RowPadY = 7.f;
+    constexpr float RowRadius = 9.f;
+    constexpr float RowGap = 10.f;
+    constexpr float RowIconColumn = 26.f;
     constexpr float ResultIcon = 24.f;
-    constexpr float ResultTextLeft = 44.f;  // From the row left edge.
-    constexpr float TitleFontSize = 13.5f;
+    constexpr float CommandIconRadius = 6.f;
+    constexpr float TitleFontSize = 13.f;
     constexpr float SubtitleFontSize = 11.5f;
+    constexpr float KeyFontSize = 11.f;
+    constexpr float LineHeightFactor = 1.55f;
+    constexpr float TitleLineHeight = TitleFontSize * LineHeightFactor;
+    constexpr float SubtitleLineHeight = SubtitleFontSize * LineHeightFactor;
+    constexpr float RowAppHeight = RowPadY * 2 + TitleLineHeight + SubtitleLineHeight;
+    constexpr float RowCommandHeight = RowPadY * 2 + ResultIcon;
+
+    // Window margins for the shadows. Each margin holds 3 standard
+    // deviations of the largest shadow on that side, plus its offset.
+    constexpr float ShadowSide = 60.f;
+    constexpr float ShadowTop = 40.f;
+    constexpr float ShadowBottom = 55.f;
+    constexpr float ResultsShadowBottom = 74.f;
 
     // Extra width on each side for spring overshoot.
     constexpr float OvershootMargin = 4.f;

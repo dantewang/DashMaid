@@ -13,6 +13,20 @@ namespace dm
     namespace
     {
         constexpr wchar_t WindowClass[] = L"DashMaid.Toolbar";
+        constexpr wchar_t VisualClass[] = L"DashMaid.ToolbarVisual";
+
+        LRESULT CALLBACK VisualWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+        {
+            if (msg == WM_NCHITTEST)
+            {
+                return HTTRANSPARENT;
+            }
+            if (msg == WM_MOUSEACTIVATE)
+            {
+                return MA_NOACTIVATE;
+            }
+            return DefWindowProcW(hwnd, msg, wp, lp);
+        }
         constexpr UINT TrayMessage = WM_APP + 1;
         constexpr UINT CatalogMessage = WM_APP + 2;
         constexpr UINT WidgetMessage = WM_APP + 3;
@@ -85,6 +99,10 @@ namespace dm
         wc.lpszClassName = WindowClass;
         RegisterClassExW(&wc);
 
+        // Two windows with the same rectangle. The input window has no content and
+        // a window region, so it gets mouse input only on the toolbar. The visual
+        // window above it shows the content with antialiased edges and shadows,
+        // and mouse input goes through it.
         hwnd_ = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP,
                                 WindowClass, strings::AppName, WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, instance, this);
         if (!hwnd_)
@@ -92,8 +110,22 @@ namespace dm
             return false;
         }
 
+        WNDCLASSEXW vc{ sizeof(vc) };
+        vc.lpfnWndProc = VisualWndProc;
+        vc.hInstance = instance;
+        vc.lpszClassName = VisualClass;
+        RegisterClassExW(&vc);
+        visual_ = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP |
+                                      WS_EX_LAYERED | WS_EX_TRANSPARENT,
+                                  VisualClass, strings::AppName, WS_POPUP, 0, 0, 1, 1, hwnd_, nullptr, instance, nullptr);
+        if (!visual_)
+        {
+            return false;
+        }
+        SetLayeredWindowAttributes(visual_, 0, 255, LWA_ALPHA);
+
         scale_ = GetDpiForWindow(hwnd_) / 96.f;
-        scene_.Initialize(hwnd_, scale_);
+        scene_.Initialize(visual_, scale_);
 
         auto loaded = Config::Load(configText_);
         configBroken_ = !loaded;
@@ -233,6 +265,8 @@ namespace dm
         const int h = static_cast<int>(std::ceil(scene_.WindowHeight() * scale_));
         scene_.SetWindowWidth(w / scale_);
 
+        // The anchor is the top of the toolbar. The window starts higher by the shadow margin.
+        const int margin = static_cast<int>(std::lround(Scene::TopMargin() * scale_));
         int x = anchor_.x - w / 2;
         int y = anchor_.y;
         if (config_.mode == PositionMode::Dock)
@@ -247,6 +281,7 @@ namespace dm
         {
             SummonPosition(x, y);
         }
+        y -= margin;
         SetWindowPos(hwnd_, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE);
         regionDirty_ = true;
         Kick();
@@ -257,7 +292,8 @@ namespace dm
         RECT rc;
         GetWindowRect(hwnd_, &rc);
         const int w = rc.right - rc.left;
-        SetWindowPos(hwnd_, HWND_TOPMOST, anchor_.x - w / 2, anchor_.y, 0, 0, SWP_NOACTIVATE | SWP_NOSIZE);
+        const int margin = static_cast<int>(std::lround(Scene::TopMargin() * scale_));
+        SetWindowPos(hwnd_, HWND_TOPMOST, anchor_.x - w / 2, anchor_.y - margin, 0, 0, SWP_NOACTIVATE | SWP_NOSIZE);
     }
 
     void App::SaveConfig()
@@ -330,7 +366,7 @@ namespace dm
     // The window is wider than the toolbar at rest. Outside the toolbar,
     // the window must not take mouse input, so at rest the window region
     // is the toolbar shape. While the toolbar is open or moves, the region
-    // is the full window.
+    // is the toolbar and the results area, without the shadow margins.
     void App::UpdateRegion()
     {
         const bool full = hover_ >= 0 || menuOpen_ || pressing_ || animating_ || runOpen_ || scene_.RunVisible();
@@ -340,7 +376,8 @@ namespace dm
         }
         if (full)
         {
-            SetWindowRgn(hwnd_, nullptr, FALSE);
+            const RECT r = scene_.InteractiveRect();
+            SetWindowRgn(hwnd_, CreateRectRgn(r.left, r.top, r.right, r.bottom), FALSE);
         }
         else
         {
@@ -682,7 +719,7 @@ namespace dm
         const RECT track = scene_.RestTrackRect();
         const int trackW = track.right - track.left;
         const int margin = static_cast<int>(std::lround(8 * scale_));
-        const int fullH = static_cast<int>(std::ceil(Scene::RunWindowHeight() * scale_));
+        const int fullH = static_cast<int>(std::ceil(Scene::RunContentHeight() * scale_));
 
         int trackLeft, top;
         if (config_.mode == PositionMode::Center)
@@ -1251,6 +1288,24 @@ namespace dm
         const POINT p{ GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
         switch (msg)
         {
+        case WM_WINDOWPOSCHANGED:
+            if (visual_)
+            {
+                const auto* pos = reinterpret_cast<const WINDOWPOS*>(lp);
+                RECT rc;
+                GetWindowRect(hwnd_, &rc);
+                UINT flags = SWP_NOACTIVATE | SWP_NOZORDER;
+                if (pos->flags & SWP_SHOWWINDOW)
+                {
+                    flags |= SWP_SHOWWINDOW;
+                }
+                if (pos->flags & SWP_HIDEWINDOW)
+                {
+                    flags |= SWP_HIDEWINDOW;
+                }
+                SetWindowPos(visual_, nullptr, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, flags);
+            }
+            break;
         case WM_MOUSEACTIVATE:
             return (runOpen_ || summoned_) ? MA_ACTIVATE : MA_NOACTIVATE;
         case WM_ACTIVATE:

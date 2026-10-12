@@ -6,6 +6,10 @@ DashMaid is a Windows desktop launcher. It shows a toolbar that stays above all 
 
 The toolbar process works for app items: icons, the hover animation, click to start, the right-click menu, drag to move, and the tray icon. The run box works: the round button or the run hotkey opens it. It searches the toolbar apps and the Start menu apps (name, path, and pinyin initials), and it runs commands like the Windows Run dialog. Widgets work: clock, CPU, memory, network, and command output. The center and cursor modes work: the toggle hotkey shows the toolbar, and Esc, the hotkey, a click outside, or a started app hides it. AppBar registration and the settings window do not exist yet. The 设置 menu command opens `config.json` in Notepad until the settings window exists.
 
+The look of the toolbar must be the same as the prototype: colors, shadows, antialiasing, and timing. `Scene.cpp` uses the CSS values of the prototype directly. To compare, put the app and the prototype on the same plain background and compare the pixels.
+
+The toolbar uses two windows. The input window gets all messages and has the window region. The visual window is owned by the input window, is transparent to the mouse, and has the Composition content. It has no region, so the corners keep their antialiasing, and it has margins for the shadows.
+
 An HTML prototype shows the interaction and the layout. The prototype is published as a private Artifact at https://claude.ai/artifact/HguynqyhfMH1omXntvjZMg. A local copy is at `prototype/dashmaid.html`. Git ignores the `prototype/` folder. Do not commit the prototype.
 
 ## Target platform
@@ -44,6 +48,8 @@ Installed on the development machine:
   - `TextEdit.*`: single-line text editing for the run box.
   - `Hotkey.*`: parse hotkey text such as `Ctrl+Alt+R`.
   - `Widgets.*`: widget data (clock, CPU, memory, network) and the command runner.
+  - `Paint.*`: CSS rules in Direct2D: box shadows, shadow-list interpolation, cubic-bezier timing, and transitions.
+  - `Effects.*`: Direct2D effect descriptions for Composition effect brushes (blur, saturate), without Win2D.
   - `Metrics.h`: sizes in DIPs. `Strings.h`: UI text.
 - `tests/`: unit tests for the code that has no UI (`ToolbarTests`). Run them with `ctest --test-dir build -C Debug`.
 - `build/`: CMake output. Git ignores this folder.

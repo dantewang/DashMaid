@@ -1,8 +1,10 @@
 // Tests for the parts of the toolbar that have no UI.
 #include <windows.h>
+#include <cmath>
 #include <cstdio>
 #include <string>
 #include "../src/Toolbar/Hotkey.h"
+#include "../src/Toolbar/Paint.h"
 #include "../src/Toolbar/Pinyin.h"
 #include "../src/Toolbar/Search.h"
 #include "../src/Toolbar/TextEdit.h"
@@ -27,6 +29,34 @@ using namespace dm;
 
 int main()
 {
+    // CSS timing functions.
+    CHECK(std::fabs(CubicBezier(0, 0, 1, 1, 0.3f) - 0.3f) < 1e-3f);
+    CHECK(std::fabs(Ease(0.5f) - 0.8024f) < 2e-3f);
+    CHECK(std::fabs(EaseInOut(0.5f) - 0.5f) < 1e-3f);
+    CHECK(CubicBezier(0.3f, 1.6f, 0.5f, 1, 0.5f) > 1.f);  // Overshoot.
+
+    // CSS shadow list interpolation.
+    {
+        const ShadowList a = { { 0, 2, 6, 0, { 0, 0, 0, 0.45f } }, { 0, -2, 4, 0, { 0, 0, 0, 0.22f }, true } };
+        const ShadowList b = { { 0, 0, 14, 2, { 1, 1, 1, 0.35f } } };
+        const ShadowList m = Interpolate(a, b, 0.5f);
+        CHECK(m.size() == 2);
+        CHECK(std::fabs(m[0].blur - 10) < 1e-4f && std::fabs(m[0].spread - 1) < 1e-4f);
+        CHECK(std::fabs(m[0].color.a - 0.4f) < 1e-4f);
+        CHECK(std::fabs(m[0].color.r - 0.4375f) < 1e-3f);  // Premultiplied: 0.175 / 0.4.
+        CHECK(m[1].inset && std::fabs(m[1].color.a - 0.11f) < 1e-4f && std::fabs(m[1].y + 1) < 1e-4f);
+    }
+
+    // CSS transition with the reversing rule.
+    {
+        Transition t(1.f, 0, 0, 1, 1, 0.f);
+        t.Set(1.f, 0.0);
+        CHECK(std::fabs(t.Value(0.5) - 0.5f) < 1e-3f);
+        t.Set(0.f, 0.5);  // Reverse at the middle: half the time.
+        CHECK(std::fabs(t.Value(0.75) - 0.25f) < 1e-3f);
+        CHECK(t.Value(1.0) == 0.f && !t.Running(1.0));
+    }
+
     // Pinyin initials.
     CHECK(Initials(L"记事本") == L"jsb");
     CHECK(Initials(L"计算器") == L"jsq");

@@ -10,6 +10,8 @@ add_executable(DashMaid WIN32
     Pinyin.cpp
     Search.cpp
     TextEdit.cpp
+    Paint.cpp
+    Effects.cpp
     Widgets.cpp
     DashMaid.manifest
 )
