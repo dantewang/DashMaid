@@ -67,7 +67,7 @@ The output is `build\src\Toolbar\Debug\DashMaid.exe`. Only one instance runs at 
 - `theme`: `dark` or `light`. `material`: `acrylic` or `solid`. `collapsedStyle`: `slice` or `glow`.
 - `widgetDisplay`: `text` (widgets always show their text) or `collapse` (widgets collapse like app items).
 - `spring`: `stiffness`, `damping`.
-- `hotkeys`: `run` (default `Ctrl+Alt+R`) and `toggle` (default `Alt+``, registered only in the `center` and `cursor` modes). An empty string disables a hotkey.
+- `hotkeys`: `run` (default `Ctrl+Alt+R`) and `toggle` (default ``Alt+` ``, registered only in the `center` and `cursor` modes). An empty string disables a hotkey.
 - `items`: array of objects. The toolbar shows them in this order.
   - App: `type` (`app`), `name`, `path`, `args`, `workingDir`, `style` (`default`, `slice`, `glow`), `admin`.
   - Widget: `type` (`widget`), `source` (`clock`, `cpu`, `memory`, `network`, `command`), `click` (the file, URI, or program that a click opens. If `click` is empty, the toolbar uses the default of the source). A command widget also has `name`, `command` (runs through `cmd.exe /c`), `interval` (seconds), and optional `color` (`#RRGGBB`, text color in the dark theme).
