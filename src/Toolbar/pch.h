@@ -1,0 +1,43 @@
+#pragma once
+
+#include <windows.h>
+#include <windowsx.h>
+#include <unknwn.h>
+#include <shellapi.h>
+#include <shlobj.h>
+#include <shobjidl.h>
+#include <shldisp.h>
+#include <shlwapi.h>
+#include <dwmapi.h>
+#include <dxgi.h>
+#include <d3d11.h>
+#include <d2d1_1.h>
+#include <d2d1_1helper.h>
+#include <d2d1effects.h>
+#include <wincodec.h>
+#include <dcomp.h>
+#include <DispatcherQueue.h>
+#include <windows.ui.composition.interop.h>
+
+#include <winrt/base.h>
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/Windows.Foundation.Numerics.h>
+#include <winrt/Windows.Data.Json.h>
+#include <winrt/Windows.Graphics.DirectX.h>
+#include <winrt/Windows.System.h>
+#include <winrt/Windows.UI.h>
+#include <winrt/Windows.UI.Composition.h>
+#include <winrt/Windows.UI.Composition.Desktop.h>
+
+#include <algorithm>
+#include <climits>
+#include <cmath>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <optional>
+#include <sstream>
+#include <string>
+#include <unordered_map>
+#include <vector>

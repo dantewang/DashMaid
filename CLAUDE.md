@@ -4,6 +4,8 @@ DashMaid is a Windows desktop launcher. It shows a toolbar that stays above all 
 
 ## Status
 
+The toolbar process works for app items: icons, the hover animation, click to start, the right-click menu, drag to move, and the tray icon. The run box, widgets, the hotkey positions, AppBar registration, and the settings window do not exist yet. The round button opens the Windows Run dialog until the run box exists. The 设置 menu command opens `config.json` in Notepad until the settings window exists.
+
 An HTML prototype shows the interaction and the layout. The prototype is published as a private Artifact at https://claude.ai/artifact/HguynqyhfMH1omXntvjZMg. A local copy is at `prototype/dashmaid.html`. Git ignores the `prototype/` folder. Do not commit the prototype.
 
 ## Target platform
@@ -13,7 +15,8 @@ An HTML prototype shows the interaction and the layout. The prototype is publish
 
 ## Tech stack
 
-- Toolbar process (always running): C++20, Win32, and Windows.UI.Composition through C++/WinRT. Draw text and icons with Direct2D and DirectWrite. Use Composition spring animations for the item animation. Keep the working set at 30 MB or less.
+- Toolbar process (always running): C++20, Win32, and Windows.UI.Composition through C++/WinRT. Draw text and icons with Direct2D and DirectWrite into Composition drawing surfaces. Keep the working set at 30 MB or less.
+- Animation: the toolbar process calculates the springs on the CPU and writes the values to the Composition visuals once per compositor frame (`DCompositionWaitForCompositorClock`). Hit tests use the same values, so the item under the pointer is always the item that the user sees. Do not replace this with Composition spring animations.
 - Settings window (separate process, starts on demand): C# on .NET 10 with WinUI 3 (Windows App SDK, unpackaged). The process exits when the window closes.
 - Shared configuration: `%APPDATA%\DashMaid\config.json`. The toolbar process watches this file for changes.
 - Do not use Rust. Do not use web technology (Electron, WebView2 UI, Tauri, or similar).
@@ -24,6 +27,37 @@ Installed on the development machine:
 - Visual Studio Build Tools 2026 (18.x) with the MSVC x64 tools
 - CMake from Visual Studio Build Tools: `C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe` (not on `PATH`)
 - Windows SDK 10.0.26100.0
+
+## Repository layout
+
+- `src/Toolbar/`: the toolbar process (`DashMaid.exe`).
+  - `App.*`: window, message loop, input, menus, tray icon.
+  - `Scene.*`: Composition visual tree, layout, springs, hit tests.
+  - `Config.*`: read and write `config.json`.
+  - `Icons.*`: icon extraction and main color.
+  - `Launch.*`: start apps, open the file location, clipboard.
+  - `Metrics.h`: sizes in DIPs. `Strings.h`: UI text.
+- `build/`: CMake output. Git ignores this folder.
+
+## Build
+
+Run these commands from the repository root:
+
+```
+"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -S . -B build -G "Visual Studio 18 2026" -A x64
+"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build build --config Debug
+```
+
+The output is `build\src\Toolbar\Debug\DashMaid.exe`. Only one instance runs at a time. To stop it, right-click the tray icon and select 退出.
+
+## Configuration file
+
+`%APPDATA%\DashMaid\config.json` (UTF-8). The toolbar writes the defaults when the file does not exist. Fields:
+
+- `position`: `mode` (`float`, `dock`, `center`, `cursor`), `x` (window center, screen pixels), `y` (window top, screen pixels).
+- `theme`: `dark` or `light`. `material`: `acrylic` or `solid`. `collapsedStyle`: `slice` or `glow`.
+- `spring`: `stiffness`, `damping`.
+- `items`: array of objects with `type` (`app`), `name`, `path`, `args`, `workingDir`, `style` (`default`, `slice`, `glow`), `admin`.
 
 ## Required behavior
 
