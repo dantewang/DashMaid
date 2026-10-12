@@ -15,10 +15,12 @@ An HTML prototype shows the interaction and the layout. The prototype is publish
 
 ## Tech stack
 
-- Toolbar process (always running): C++20, Win32, and Windows.UI.Composition through C++/WinRT. Draw text and icons with Direct2D and DirectWrite into Composition drawing surfaces. Keep the working set at 30 MB or less.
+- Toolbar process (always running): C++20, Win32, and Windows.UI.Composition through C++/WinRT. Draw text and icons with Direct2D and DirectWrite into Composition drawing surfaces.
 - Animation: the toolbar process calculates the springs on the CPU and writes the values to the Composition visuals once per compositor frame (`DCompositionWaitForCompositorClock`). Hit tests use the same values, so the item under the pointer is always the item that the user sees. Do not replace this with Composition spring animations.
-- Settings window (separate process, starts on demand): C# on .NET 10 with WinUI 3 (Windows App SDK, unpackaged). The process exits when the window closes.
+- Settings window (separate process, starts on demand): C# on .NET 10 with WinUI 3. Use the Windows App SDK unpackaged (`WindowsPackageType` = `None`) and self-contained (`WindowsAppSDKSelfContained` = `true`). This deployment needs no MSIX package, no Store, and no separate runtime installer. The process exits when the window closes.
 - Shared configuration: `%APPDATA%\DashMaid\config.json`. The toolbar process watches this file for changes.
+- Resource use: balance code complexity, CPU and GPU use, and memory use. Memory has a soft target of 30 MB working set for the toolbar process. The target is not a hard requirement.
+- Do not use memory optimizations that make the app slower or use more CPU or GPU time. Examples: `EmptyWorkingSet` or other working-set trims, releasing a resource and creating it again when it is necessary, decoding again instead of keeping a cache, and software rendering (WARP) instead of the GPU.
 - Do not use Rust. Do not use web technology (Electron, WebView2 UI, Tauri, or similar).
 
 Installed on the development machine:
