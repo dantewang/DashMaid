@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "App.h"
+#include "Hotkey.h"
 #include "Icons.h"
 #include "Launch.h"
 #include "Metrics.h"
@@ -13,9 +14,47 @@ namespace dm
     {
         constexpr wchar_t WindowClass[] = L"DashMaid.Toolbar";
         constexpr UINT TrayMessage = WM_APP + 1;
+        constexpr UINT CatalogMessage = WM_APP + 2;
         constexpr UINT TrayId = 1;
         constexpr UINT_PTR MenuTimer = 1;
+        constexpr int HotkeyRun = 1;
         constexpr UINT IconSourcePx = 128;
+        constexpr UINT ResultIconPx = 64;
+        constexpr size_t EmptyQueryRows = 5;
+
+        bool PathExists(const std::wstring& path)
+        {
+            return GetFileAttributesW(ExpandPath(path).c_str()) != INVALID_FILE_ATTRIBUTES;
+        }
+
+        std::wstring DisplayPath(const std::wstring& path)
+        {
+            constexpr std::wstring_view apps = L"shell:AppsFolder\\";
+            if (path.size() > apps.size() && _wcsnicmp(path.c_str(), apps.data(), apps.size()) == 0)
+            {
+                return path.substr(apps.size());
+            }
+            return ExpandPath(path);
+        }
+
+        std::wstring ReadClipboard(HWND owner)
+        {
+            std::wstring text;
+            if (!OpenClipboard(owner))
+            {
+                return text;
+            }
+            if (HANDLE h = GetClipboardData(CF_UNICODETEXT))
+            {
+                if (auto* p = static_cast<const wchar_t*>(GlobalLock(h)))
+                {
+                    text = p;
+                    GlobalUnlock(h);
+                }
+            }
+            CloseClipboard();
+            return text;
+        }
 
         enum Command : UINT
         {
@@ -120,6 +159,22 @@ namespace dm
             anchor_ = { config_.x, config_.y };
         }
         PlaceWindow();
+        RegisterHotkeys();
+        if (runOpen_)
+        {
+            BuildCandidates();
+            UpdateResults();
+        }
+    }
+
+    void App::RegisterHotkeys()
+    {
+        UnregisterHotKey(hwnd_, HotkeyRun);
+        const Hotkey hk = ParseHotkey(config_.runHotkey);
+        if (hk.Valid())
+        {
+            RegisterHotKey(hwnd_, HotkeyRun, hk.modifiers | MOD_NOREPEAT, hk.vk);
+        }
     }
 
     void App::LoadItems()
@@ -147,8 +202,8 @@ namespace dm
 
     void App::PlaceWindow()
     {
-        const int w = static_cast<int>(std::ceil(scene_.MaxTrackWidth() * scale_));
-        const int h = static_cast<int>(std::ceil(BarHeightHover * scale_));
+        const int w = static_cast<int>(std::ceil(scene_.WindowWidth() * scale_));
+        const int h = static_cast<int>(std::ceil(scene_.WindowHeight() * scale_));
         scene_.SetWindowWidth(w / scale_);
 
         int x = anchor_.x - w / 2;
@@ -212,6 +267,13 @@ namespace dm
         animating_ = scene_.Step(dt);
         scene_.Apply();
         UpdateRegion();
+
+        // The window keeps the run box height until the close animation ends.
+        if (!animating_ && shrinkPending_ && !scene_.RunVisible())
+        {
+            shrinkPending_ = false;
+            PlaceWindow();
+        }
     }
 
     // The window is wider than the toolbar at rest. Outside the toolbar,
@@ -220,7 +282,7 @@ namespace dm
     // is the full window.
     void App::UpdateRegion()
     {
-        const bool full = hover_ >= 0 || menuOpen_ || pressing_ || animating_;
+        const bool full = hover_ >= 0 || menuOpen_ || pressing_ || animating_ || runOpen_ || scene_.RunVisible();
         if (full == fullRegion_ && !regionDirty_)
         {
             return;
@@ -268,6 +330,12 @@ namespace dm
             tracking_ = true;
         }
 
+        if (runOpen_)
+        {
+            OnRunMouseMove(p);
+            return;
+        }
+
         if (pressing_)
         {
             POINT c;
@@ -303,6 +371,12 @@ namespace dm
     void App::OnMouseLeave()
     {
         tracking_ = false;
+        if (runOpen_)
+        {
+            scene_.SetOrbHover(false);
+            Kick();
+            return;
+        }
         if (menuOpen_ || pressing_)
         {
             return;
@@ -315,6 +389,11 @@ namespace dm
 
     void App::OnLeftDown(POINT p)
     {
+        if (runOpen_)
+        {
+            OnRunLeftDown(p);
+            return;
+        }
         SetCapture(hwnd_);
         pressing_ = true;
         dragging_ = false;
@@ -344,6 +423,11 @@ namespace dm
 
     void App::OnLeftUp(POINT p)
     {
+        if (runOpen_)
+        {
+            OnRunLeftUp(p);
+            return;
+        }
         if (!pressing_)
         {
             return;
@@ -367,12 +451,16 @@ namespace dm
         }
         else if (orb && scene_.HitTestOrb(p))
         {
-            ShowRunDialog();
+            OpenRun();
         }
     }
 
     void App::OnRightUp(POINT p)
     {
+        if (runOpen_)
+        {
+            return;
+        }
         POINT screen = p;
         ClientToScreen(hwnd_, &screen);
         const int item = scene_.HitTestItem(p);
@@ -383,6 +471,388 @@ namespace dm
         else
         {
             ShowAppMenu(screen);
+        }
+    }
+
+    void App::OpenRun()
+    {
+        if (runOpen_)
+        {
+            SetForegroundWindow(hwnd_);
+            return;
+        }
+        HWND fg = GetForegroundWindow();
+        previousForeground_ = fg != hwnd_ ? fg : nullptr;
+        runOpen_ = true;
+        shrinkPending_ = false;
+        hover_ = -1;
+        scene_.SetHover(-1);
+        scene_.SetPinned(-1);
+        edit_.Clear();
+        pendingHigh_ = 0;
+
+        catalog_.Refresh(hwnd_, CatalogMessage);
+        BuildCandidates();
+        scene_.SetRunOpen(true);
+        PushInput(true);
+
+        SetWindowLongPtrW(hwnd_, GWL_EXSTYLE, GetWindowLongPtrW(hwnd_, GWL_EXSTYLE) & ~WS_EX_NOACTIVATE);
+        PlaceWindow();
+        SetForegroundWindow(hwnd_);
+        SetFocus(hwnd_);
+        UpdateIme();
+        Kick();
+    }
+
+    void App::CloseRun(bool restoreFocus)
+    {
+        if (!runOpen_)
+        {
+            return;
+        }
+        runOpen_ = false;
+        selectingText_ = false;
+        pressResult_ = -1;
+        if (GetCapture() == hwnd_)
+        {
+            ReleaseCapture();
+        }
+        scene_.SetRunOpen(false);
+        SetWindowLongPtrW(hwnd_, GWL_EXSTYLE, GetWindowLongPtrW(hwnd_, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
+        shrinkPending_ = true;
+        if (restoreFocus && GetForegroundWindow() == hwnd_ && previousForeground_ && IsWindow(previousForeground_))
+        {
+            SetForegroundWindow(previousForeground_);
+        }
+        previousForeground_ = nullptr;
+        RefreshHoverFromCursor();
+        Kick();
+    }
+
+    // The candidates are the toolbar apps and the apps in the Start menu.
+    void App::BuildCandidates()
+    {
+        candidates_.clear();
+        sources_.clear();
+        std::unordered_set<std::wstring> seen;
+
+        for (int i = 0; i < static_cast<int>(config_.items.size()); ++i)
+        {
+            const AppItem& a = config_.items[i];
+            Candidate c;
+            c.name = a.name;
+            c.path = a.path;
+            c.display = DisplayPath(a.path);
+            c.onToolbar = true;
+            PrepareCandidate(c);
+            seen.insert(ToLower(ExpandPath(a.path)));
+            candidates_.push_back(std::move(c));
+            sources_.push_back({ i, {} });
+        }
+
+        for (auto& e : catalog_.Entries())
+        {
+            if (!seen.insert(ToLower(e.path)).second)
+            {
+                continue;
+            }
+            Candidate c;
+            c.name = e.name;
+            c.path = e.path;
+            c.display = e.display;
+            PrepareCandidate(c);
+            candidates_.push_back(std::move(c));
+            sources_.push_back({ -1, e });
+        }
+    }
+
+    winrt::com_ptr<IWICBitmapSource> App::ResultIcon(const std::wstring& path)
+    {
+        if (auto it = resultIcons_.find(path); it != resultIcons_.end())
+        {
+            return it->second;
+        }
+        auto bmp = LoadAppIcon(wic_.get(), path, ResultIconPx).bitmap;
+        resultIcons_.emplace(path, bmp);
+        return bmp;
+    }
+
+    void App::UpdateResults()
+    {
+        const std::wstring query = Trim(edit_.Text());
+        std::vector<ResultRow> rows;
+        targets_.clear();
+
+        auto addSource = [&](size_t index, int hlStart, int hlLength) {
+            const Candidate& c = candidates_[index];
+            rows.push_back({ ResultIcon(c.path), c.name, c.display, hlStart, hlLength, false });
+            targets_.push_back({ static_cast<int>(index), false });
+        };
+        auto addCommand = [&] {
+            rows.push_back({ nullptr, strings::RunPrefix + query, L"", -1, 0, true });
+            targets_.push_back({ -1, true });
+        };
+
+        if (query.empty())
+        {
+            for (size_t i = 0; i < sources_.size() && rows.size() < EmptyQueryRows; ++i)
+            {
+                if (sources_[i].item >= 0)
+                {
+                    addSource(i, -1, 0);
+                }
+            }
+        }
+        else
+        {
+            const auto matches = Rank(candidates_, query, ResultsMaxRows - 1);
+            // Text that looks like a path, or a weak match, runs as a command first.
+            const bool pathLike = query.find_first_of(L"\\/:.\"%") != std::wstring::npos;
+            const bool commandFirst = matches.empty() || pathLike || matches[0].score < 60;
+            if (commandFirst)
+            {
+                addCommand();
+            }
+            for (auto& m : matches)
+            {
+                addSource(m.index, m.highlightStart, m.highlightLength);
+            }
+            if (!commandFirst)
+            {
+                addCommand();
+            }
+        }
+
+        selected_ = 0;
+        scene_.SetResults(std::move(rows), selected_);
+        Kick();
+    }
+
+    void App::PushInput(bool textChanged)
+    {
+        scene_.SetInput(edit_.Text(), edit_.Caret(), edit_.SelectionStart(), edit_.SelectionEnd());
+        if (textChanged)
+        {
+            UpdateResults();
+        }
+        UpdateIme();
+        Kick();
+    }
+
+    // The system IME window shows the composition next to the caret.
+    void App::UpdateIme()
+    {
+        HIMC imc = ImmGetContext(hwnd_);
+        if (!imc)
+        {
+            return;
+        }
+        const POINT caret = scene_.CaretClientPx();
+        COMPOSITIONFORM cf{ CFS_POINT, caret, {} };
+        ImmSetCompositionWindow(imc, &cf);
+        CANDIDATEFORM cand{ 0, CFS_CANDIDATEPOS, { caret.x, caret.y + scene_.CaretHeightPx() }, {} };
+        ImmSetCandidateWindow(imc, &cand);
+        ImmReleaseContext(hwnd_, imc);
+    }
+
+    void App::RunSelected(bool admin)
+    {
+        if (selected_ < 0 || selected_ >= static_cast<int>(targets_.size()))
+        {
+            return;
+        }
+        const RunTarget t = targets_[selected_];
+        if (t.command)
+        {
+            const CommandLine cmd = ParseCommand(Trim(edit_.Text()), PathExists);
+            if (cmd.file.empty() || !RunCommand(hwnd_, cmd.file, cmd.params, admin))
+            {
+                return;
+            }
+            CloseRun(false);
+            return;
+        }
+
+        const RunSource& src = sources_[t.source];
+        AppItem item;
+        if (src.item >= 0)
+        {
+            item = config_.items[src.item];
+        }
+        else
+        {
+            item.name = src.entry.name;
+            item.path = src.entry.path;
+        }
+        CloseRun(false);
+        LaunchItem(hwnd_, item, admin || item.admin);
+    }
+
+    void App::MoveSelection(int delta)
+    {
+        const int n = static_cast<int>(targets_.size());
+        if (n == 0)
+        {
+            return;
+        }
+        selected_ = (selected_ + delta + n) % n;
+        scene_.SetSelected(selected_);
+        Kick();
+    }
+
+    bool App::OnRunKey(UINT vk)
+    {
+        const bool ctrl = GetKeyState(VK_CONTROL) < 0;
+        const bool shift = GetKeyState(VK_SHIFT) < 0;
+        switch (vk)
+        {
+        case VK_ESCAPE:
+            CloseRun(true);
+            return true;
+        case VK_RETURN:
+            RunSelected(ctrl && shift);
+            return true;
+        case VK_UP:
+            MoveSelection(-1);
+            return true;
+        case VK_DOWN:
+            MoveSelection(1);
+            return true;
+        case VK_TAB:
+            MoveSelection(shift ? -1 : 1);
+            return true;
+        default:
+            break;
+        }
+
+        if (ctrl && (vk == 'C' || vk == 'X'))
+        {
+            if (edit_.HasSelection())
+            {
+                CopyToClipboard(hwnd_, edit_.Selected());
+                if (vk == 'X')
+                {
+                    edit_.DeleteSelection();
+                    PushInput(true);
+                }
+            }
+            return true;
+        }
+        if (ctrl && vk == 'V')
+        {
+            edit_.Insert(ReadClipboard(hwnd_));
+            PushInput(true);
+            return true;
+        }
+
+        const std::wstring before = edit_.Text();
+        if (edit_.Key(vk, ctrl, shift))
+        {
+            PushInput(edit_.Text() != before);
+            return true;
+        }
+        return false;
+    }
+
+    void App::OnRunChar(wchar_t ch)
+    {
+        if (IS_HIGH_SURROGATE(ch))
+        {
+            pendingHigh_ = ch;
+            return;
+        }
+        std::wstring s;
+        if (IS_LOW_SURROGATE(ch))
+        {
+            if (!pendingHigh_)
+            {
+                return;
+            }
+            s = { pendingHigh_, ch };
+        }
+        else if (ch >= 0x20 && ch != 0x7F)
+        {
+            s = ch;
+        }
+        pendingHigh_ = 0;
+        if (!s.empty())
+        {
+            edit_.Insert(s);
+            PushInput(true);
+        }
+    }
+
+    void App::OnRunMouseMove(POINT p)
+    {
+        if (selectingText_)
+        {
+            const int pos = scene_.HitTestInput(p);
+            if (pos >= 0)
+            {
+                edit_.SetCaret(static_cast<size_t>(pos), true);
+                PushInput(false);
+            }
+            return;
+        }
+        const int r = scene_.HitTestResult(p);
+        if (r >= 0 && r != selected_)
+        {
+            selected_ = r;
+            scene_.SetSelected(r);
+        }
+        scene_.SetOrbHover(scene_.HitTestOrb(p));
+        Kick();
+    }
+
+    void App::OnRunLeftDown(POINT p)
+    {
+        pressResult_ = -1;
+        pressOrb_ = false;
+        if (const int pos = scene_.HitTestInput(p); pos >= 0)
+        {
+            SetCapture(hwnd_);
+            selectingText_ = true;
+            edit_.SetCaret(static_cast<size_t>(pos), GetKeyState(VK_SHIFT) < 0);
+            PushInput(false);
+            return;
+        }
+        if (const int r = scene_.HitTestResult(p); r >= 0)
+        {
+            SetCapture(hwnd_);
+            pressResult_ = r;
+            return;
+        }
+        if (scene_.HitTestOrb(p))
+        {
+            SetCapture(hwnd_);
+            pressOrb_ = true;
+            return;
+        }
+        if (!scene_.HitTestTrack(p))
+        {
+            CloseRun(true);
+        }
+    }
+
+    void App::OnRunLeftUp(POINT p)
+    {
+        const int r = pressResult_;
+        const bool orb = pressOrb_;
+        selectingText_ = false;
+        pressResult_ = -1;
+        pressOrb_ = false;
+        if (GetCapture() == hwnd_)
+        {
+            ReleaseCapture();
+        }
+        if (r >= 0 && r == scene_.HitTestResult(p))
+        {
+            selected_ = r;
+            RunSelected(GetKeyState(VK_CONTROL) < 0 && GetKeyState(VK_SHIFT) < 0);
+        }
+        else if (orb && scene_.HitTestOrb(p))
+        {
+            CloseRun(true);
         }
     }
 
@@ -506,7 +976,52 @@ namespace dm
         switch (msg)
         {
         case WM_MOUSEACTIVATE:
-            return MA_NOACTIVATE;
+            return runOpen_ ? MA_ACTIVATE : MA_NOACTIVATE;
+        case WM_ACTIVATE:
+            if (LOWORD(wp) == WA_INACTIVE && runOpen_)
+            {
+                CloseRun(false);
+            }
+            return 0;
+        case WM_HOTKEY:
+            if (wp == HotkeyRun)
+            {
+                if (runOpen_ && GetForegroundWindow() == hwnd_)
+                {
+                    CloseRun(true);
+                }
+                else
+                {
+                    OpenRun();
+                }
+            }
+            return 0;
+        case WM_KEYDOWN:
+            if (runOpen_ && OnRunKey(static_cast<UINT>(wp)))
+            {
+                return 0;
+            }
+            break;
+        case WM_CHAR:
+            if (runOpen_)
+            {
+                OnRunChar(static_cast<wchar_t>(wp));
+                return 0;
+            }
+            break;
+        case WM_IME_STARTCOMPOSITION:
+            UpdateIme();
+            break;
+        case CatalogMessage:
+            if (runOpen_)
+            {
+                BuildCandidates();
+                if (!Trim(edit_.Text()).empty())
+                {
+                    UpdateResults();
+                }
+            }
+            return 0;
         case WM_MOUSEMOVE:
             OnMouseMove(p);
             return 0;
@@ -527,12 +1042,24 @@ namespace dm
             {
                 EndPress();
             }
+            selectingText_ = false;
             return 0;
         case WM_SETCURSOR:
             if (dragging_)
             {
                 SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
                 return TRUE;
+            }
+            if (runOpen_ && LOWORD(lp) == HTCLIENT)
+            {
+                POINT c;
+                GetCursorPos(&c);
+                ScreenToClient(hwnd_, &c);
+                if (selectingText_ || scene_.HitTestInput(c) >= 0)
+                {
+                    SetCursor(LoadCursorW(nullptr, IDC_IBEAM));
+                    return TRUE;
+                }
             }
             break;
         case WM_TIMER:

@@ -4,7 +4,7 @@ DashMaid is a Windows desktop launcher. It shows a toolbar that stays above all 
 
 ## Status
 
-The toolbar process works for app items: icons, the hover animation, click to start, the right-click menu, drag to move, and the tray icon. The run box, widgets, the hotkey positions, AppBar registration, and the settings window do not exist yet. The round button opens the Windows Run dialog until the run box exists. The 设置 menu command opens `config.json` in Notepad until the settings window exists.
+The toolbar process works for app items: icons, the hover animation, click to start, the right-click menu, drag to move, and the tray icon. The run box works: the round button or the run hotkey opens it. It searches the toolbar apps and the Start menu apps (name, path, and pinyin initials), and it runs commands like the Windows Run dialog. Widgets, the hotkey positions, AppBar registration, and the settings window do not exist yet. The 设置 menu command opens `config.json` in Notepad until the settings window exists.
 
 An HTML prototype shows the interaction and the layout. The prototype is published as a private Artifact at https://claude.ai/artifact/HguynqyhfMH1omXntvjZMg. A local copy is at `prototype/dashmaid.html`. Git ignores the `prototype/` folder. Do not commit the prototype.
 
@@ -38,7 +38,13 @@ Installed on the development machine:
   - `Config.*`: read and write `config.json`.
   - `Icons.*`: icon extraction and main color.
   - `Launch.*`: start apps, open the file location, clipboard.
+  - `AppCatalog.*`: list of the Start menu apps, built on a worker thread.
+  - `Search.*`: ranking for the run box, and command-line parsing.
+  - `Pinyin.*`: pinyin initials of Chinese characters.
+  - `TextEdit.*`: single-line text editing for the run box.
+  - `Hotkey.*`: parse hotkey text such as `Ctrl+Alt+R`.
   - `Metrics.h`: sizes in DIPs. `Strings.h`: UI text.
+- `tests/`: unit tests for the code that has no UI (`ToolbarTests`). Run them with `ctest --test-dir build -C Debug`.
 - `build/`: CMake output. Git ignores this folder.
 
 ## Build
@@ -59,6 +65,7 @@ The output is `build\src\Toolbar\Debug\DashMaid.exe`. Only one instance runs at 
 - `position`: `mode` (`float`, `dock`, `center`, `cursor`), `x` (window center, screen pixels), `y` (window top, screen pixels).
 - `theme`: `dark` or `light`. `material`: `acrylic` or `solid`. `collapsedStyle`: `slice` or `glow`.
 - `spring`: `stiffness`, `damping`.
+- `hotkeys`: `run` (default `Ctrl+Alt+R`). An empty string disables the hotkey.
 - `items`: array of objects with `type` (`app`), `name`, `path`, `args`, `workingDir`, `style` (`default`, `slice`, `glow`), `admin`.
 
 ## Required behavior

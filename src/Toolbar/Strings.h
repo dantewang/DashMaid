@@ -12,4 +12,6 @@ namespace dm::strings
     inline constexpr wchar_t Settings[] = L"设置(&S)…";
     inline constexpr wchar_t Exit[] = L"退出(&X)";
     inline constexpr wchar_t StartFailed[] = L"DashMaid 无法启动。";
+    inline constexpr wchar_t RunPlaceholder[] = L"运行";
+    inline constexpr wchar_t RunPrefix[] = L"运行 ";
 }

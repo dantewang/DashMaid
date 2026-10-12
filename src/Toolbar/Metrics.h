@@ -22,6 +22,27 @@ namespace dm::metrics
     constexpr float AppH[3] = { 18.f, 22.f, 26.f };
     constexpr float AppExpanded = 38.f;
 
+    // Run box.
+    constexpr float RunWidth = 330.f;
+    constexpr float RunTextLeft = 12.f;
+    constexpr float RunTextRight = 10.f;
+    constexpr float RunLineHeight = 24.f;
+    constexpr float RunFontSize = 15.f;
+    constexpr float CaretWidth = 1.5f;
+    constexpr float CaretHeight = 18.f;
+
+    // Results under the run box.
+    constexpr float ResultsGap = 8.f;
+    constexpr float ResultsMinWidth = 380.f;
+    constexpr float ResultsPad = 6.f;
+    constexpr float ResultsRowHeight = 42.f;
+    constexpr int ResultsMaxRows = 6;
+    constexpr float ResultsRadius = 14.f;
+    constexpr float ResultIcon = 24.f;
+    constexpr float ResultTextLeft = 44.f;  // From the row left edge.
+    constexpr float TitleFontSize = 13.5f;
+    constexpr float SubtitleFontSize = 11.5f;
+
     // Extra width on each side for spring overshoot.
     constexpr float OvershootMargin = 4.f;
 

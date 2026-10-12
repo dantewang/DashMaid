@@ -30,6 +30,7 @@ namespace dm
         Material material = Material::Acrylic;
         CollapsedStyle collapsedStyle = CollapsedStyle::Slice;
         SpringParams spring;
+        std::wstring runHotkey = L"Ctrl+Alt+R";  // Empty: no hotkey.
         std::vector<AppItem> items;
 
         static std::filesystem::path FilePath();

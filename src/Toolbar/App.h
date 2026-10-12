@@ -1,7 +1,10 @@
 #pragma once
 
 #include "Config.h"
+#include "AppCatalog.h"
 #include "Scene.h"
+#include "Search.h"
+#include "TextEdit.h"
 
 namespace dm
 {
@@ -34,6 +37,22 @@ namespace dm
         void OnLeftUp(POINT p);
         void OnRightUp(POINT p);
         void EndPress();
+
+        void OpenRun();
+        void CloseRun(bool restoreFocus);
+        void RegisterHotkeys();
+        void BuildCandidates();
+        void UpdateResults();
+        void PushInput(bool textChanged);
+        void UpdateIme();
+        void RunSelected(bool admin);
+        void MoveSelection(int delta);
+        bool OnRunKey(UINT vk);
+        void OnRunChar(wchar_t ch);
+        void OnRunMouseMove(POINT p);
+        void OnRunLeftDown(POINT p);
+        void OnRunLeftUp(POINT p);
+        winrt::com_ptr<IWICBitmapSource> ResultIcon(const std::wstring& path);
 
         UINT ShowMenu(HMENU menu, POINT screen);
         void ShowItemMenu(int index, POINT screen);
@@ -69,5 +88,30 @@ namespace dm
         bool dragging_ = false;
         POINT pressCursor_{};
         POINT pressAnchor_{};
+
+        // Run box.
+        struct RunSource
+        {
+            int item = -1;  // Toolbar item index, or -1 for a catalog entry.
+            CatalogEntry entry;
+        };
+        struct RunTarget
+        {
+            int source = -1;
+            bool command = false;
+        };
+        bool runOpen_ = false;
+        bool shrinkPending_ = false;
+        HWND previousForeground_ = nullptr;
+        TextEdit edit_;
+        wchar_t pendingHigh_ = 0;
+        AppCatalog catalog_;
+        std::vector<Candidate> candidates_;
+        std::vector<RunSource> sources_;
+        std::vector<RunTarget> targets_;
+        int selected_ = 0;
+        int pressResult_ = -1;
+        bool selectingText_ = false;
+        std::unordered_map<std::wstring, winrt::com_ptr<IWICBitmapSource>> resultIcons_;
     };
 }

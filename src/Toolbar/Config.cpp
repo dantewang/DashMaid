@@ -145,6 +145,10 @@ namespace dm
             c.spring.stiffness = static_cast<float>(std::clamp(sp.GetNamedNumber(L"stiffness", 420), 50.0, 2000.0));
             c.spring.damping = static_cast<float>(std::clamp(sp.GetNamedNumber(L"damping", 30), 1.0, 200.0));
         }
+        if (auto hk = o.GetNamedObject(L"hotkeys", nullptr))
+        {
+            c.runHotkey = hk.GetNamedString(L"run", c.runHotkey.c_str());
+        }
         for (auto&& v : o.GetNamedArray(L"items", JsonArray()))
         {
             if (v.ValueType() != JsonValueType::Object)
@@ -196,6 +200,10 @@ namespace dm
         sp.SetNamedValue(L"stiffness", JsonValue::CreateNumberValue(spring.stiffness));
         sp.SetNamedValue(L"damping", JsonValue::CreateNumberValue(spring.damping));
         o.SetNamedValue(L"spring", sp);
+
+        JsonObject hk;
+        hk.SetNamedValue(L"run", JsonValue::CreateStringValue(runHotkey));
+        o.SetNamedValue(L"hotkeys", hk);
 
         JsonArray arr;
         for (auto& a : items)

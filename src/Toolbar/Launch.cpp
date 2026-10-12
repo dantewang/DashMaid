@@ -33,6 +33,28 @@ namespace dm
         ShellExecuteExW(&sei);
     }
 
+    bool RunCommand(HWND owner, const std::wstring& file, const std::wstring& params, bool admin)
+    {
+        const std::wstring expanded = ExpandPath(file);
+        std::wstring dir;
+        PWSTR profile = nullptr;
+        if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &profile)))
+        {
+            dir = profile;
+        }
+        CoTaskMemFree(profile);
+
+        SHELLEXECUTEINFOW sei{ sizeof(sei) };
+        sei.fMask = SEE_MASK_FLAG_NO_UI | SEE_MASK_NOASYNC;
+        sei.hwnd = owner;
+        sei.lpVerb = admin ? L"runas" : nullptr;
+        sei.lpFile = expanded.c_str();
+        sei.lpParameters = params.empty() ? nullptr : params.c_str();
+        sei.lpDirectory = dir.empty() ? nullptr : dir.c_str();
+        sei.nShow = SW_SHOWNORMAL;
+        return ShellExecuteExW(&sei) != FALSE;
+    }
+
     void OpenFileLocation(const std::wstring& path)
     {
         const std::wstring full = ExpandPath(path);
@@ -62,15 +84,6 @@ namespace dm
             }
         }
         CloseClipboard();
-    }
-
-    void ShowRunDialog()
-    {
-        winrt::com_ptr<IShellDispatch> shell;
-        if (SUCCEEDED(CoCreateInstance(CLSID_Shell, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(shell.put()))))
-        {
-            shell->FileRun();
-        }
     }
 
     void OpenInNotepad(const std::filesystem::path& file)

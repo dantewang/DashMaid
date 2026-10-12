@@ -14,6 +14,8 @@
 #include <d2d1_1.h>
 #include <d2d1_1helper.h>
 #include <d2d1effects.h>
+#include <dwrite.h>
+#include <imm.h>
 #include <wincodec.h>
 #include <dcomp.h>
 #include <DispatcherQueue.h>
@@ -24,6 +26,7 @@
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Foundation.Numerics.h>
 #include <winrt/Windows.Data.Json.h>
+#include <winrt/Windows.Graphics.h>
 #include <winrt/Windows.Graphics.DirectX.h>
 #include <winrt/Windows.System.h>
 #include <winrt/Windows.UI.h>
@@ -36,8 +39,12 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <mutex>
+#include <thread>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>

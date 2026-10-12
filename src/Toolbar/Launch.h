@@ -9,8 +9,10 @@ namespace dm
     bool IsShellPath(const std::wstring& path);
 
     void LaunchItem(HWND owner, const AppItem& item, bool admin);
+
+    // Runs a command from the run box. Returns false if the shell cannot start it.
+    bool RunCommand(HWND owner, const std::wstring& file, const std::wstring& params, bool admin);
     void OpenFileLocation(const std::wstring& path);
     void CopyToClipboard(HWND owner, const std::wstring& text);
-    void ShowRunDialog();
     void OpenInNotepad(const std::filesystem::path& file);
 }
