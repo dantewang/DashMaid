@@ -44,6 +44,13 @@ namespace dm
         void SetPressed(int index);
         void SetOrbHover(bool hover) { orbHover_ = hover; }
 
+        // Shows or hides the whole toolbar with a scale and fade animation.
+        // The scale origin is the orb when "fromCursor" is true, else the toolbar center.
+        void SetVisible(bool visible, bool fromCursor);
+        void SnapVisible(bool visible);
+        bool VisibleNow() const { return visible_ || vis_.x > 0.003f; }
+        static float RunWindowHeight();  // DIPs
+
         void SetRunOpen(bool open);
         bool RunVisible() const { return runOpen_ || run_.x > 0.002f; }
         void SetInput(const std::wstring& text, size_t caret, size_t selStart, size_t selEnd);
@@ -145,6 +152,9 @@ namespace dm
         int pinned_ = -1;
         bool orbHover_ = false;
         bool runOpen_ = false;
+        bool visible_ = true;
+        bool scaleFromCursor_ = false;
+        Spring vis_;
         Spring barHeight_;
         Spring orbScale_;
         Spring run_;

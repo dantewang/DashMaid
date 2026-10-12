@@ -190,6 +190,7 @@ namespace dm
 
         barHeight_.x = barHeight_.target = BarHeight;
         orbScale_.x = orbScale_.target = 1.f;
+        vis_.x = vis_.target = 1.f;
         RenderOrb();
         RenderInput();
     }
@@ -782,6 +783,19 @@ namespace dm
         }
     }
 
+    void Scene::SetVisible(bool visible, bool fromCursor)
+    {
+        visible_ = visible;
+        scaleFromCursor_ = fromCursor;
+    }
+
+    void Scene::SnapVisible(bool visible)
+    {
+        visible_ = visible;
+        vis_.target = visible ? 1.f : 0.f;
+        vis_.Snap();
+    }
+
     void Scene::SetRunOpen(bool open)
     {
         if (open == runOpen_)
@@ -911,6 +925,11 @@ namespace dm
         {
             return BarHeightHover;
         }
+        return RunWindowHeight();
+    }
+
+    float Scene::RunWindowHeight()
+    {
         return BarHeight + ResultsGap + ResultsPad * 2 + ResultsMaxRows * ResultsRowHeight + OvershootMargin;
     }
 
@@ -1048,8 +1067,9 @@ namespace dm
         barHeight_.target = hovered >= 0 ? BarHeightHover : BarHeight;
         orbScale_.target = orbHover_ ? 1.12f : 1.f;
         run_.target = runOpen_ ? 1.f : 0.f;
+        vis_.target = visible_ ? 1.f : 0.f;
 
-        std::vector<Spring*> all{ &barHeight_, &orbScale_, &run_ };
+        std::vector<Spring*> all{ &barHeight_, &orbScale_, &run_, &vis_ };
         for (auto& v : items_)
         {
             all.insert(all.end(), { &v.w, &v.h, &v.tone, &v.press });
@@ -1085,6 +1105,12 @@ namespace dm
         const float x0 = (windowWidth_ - trackW) / 2;
         const float r = std::max(0.f, run_.x);
         const float ro = Clamp01(run_.x);
+
+        // Visibility. The scale starts at 0.7, like a menu that opens.
+        const float vis = std::max(0.f, vis_.x);
+        root_.Opacity(Clamp01(vis));
+        root_.Scale({ 0.7f + 0.3f * vis, 0.7f + 0.3f * vis, 1 });
+        root_.CenterPoint(scaleFromCursor_ ? float3{ (x0 + 24.f) * s, 0, 0 } : float3{ windowWidth_ / 2 * s, BarHeight / 2 * s, 0 });
 
         track_.root.Offset({ x0 * s, 0, 0 });
         LayoutPanel(track_, trackW * s, bh * s, Radius * s);

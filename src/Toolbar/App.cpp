@@ -21,6 +21,7 @@ namespace dm
         constexpr UINT_PTR WidgetTimer = 2;
         constexpr UINT_PTR ConfigRetryTimer = 3;
         constexpr int HotkeyRun = 1;
+        constexpr int HotkeyToggle = 2;
         constexpr UINT IconSourcePx = 128;
         constexpr UINT ResultIconPx = 64;
         constexpr size_t EmptyQueryRows = 5;
@@ -104,7 +105,7 @@ namespace dm
 
         taskbarCreated_ = RegisterWindowMessageW(L"TaskbarCreated");
         AddTrayIcon();
-        ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+        UpdateVisibility();
         Kick();
         return true;
     }
@@ -166,6 +167,7 @@ namespace dm
         }
         PlaceWindow();
         RegisterHotkeys();
+        UpdateVisibility();
         if (runOpen_)
         {
             BuildCandidates();
@@ -180,6 +182,13 @@ namespace dm
         if (hk.Valid())
         {
             RegisterHotKey(hwnd_, HotkeyRun, hk.modifiers | MOD_NOREPEAT, hk.vk);
+        }
+        // The toggle hotkey has no function in the other modes, so it stays free for other apps.
+        UnregisterHotKey(hwnd_, HotkeyToggle);
+        const Hotkey toggle = ParseHotkey(config_.toggleHotkey);
+        if (HiddenMode() && toggle.Valid())
+        {
+            RegisterHotKey(hwnd_, HotkeyToggle, toggle.modifiers | MOD_NOREPEAT, toggle.vk);
         }
     }
 
@@ -233,6 +242,10 @@ namespace dm
             GetMonitorInfoW(mon, &mi);
             x = (mi.rcMonitor.left + mi.rcMonitor.right) / 2 - w / 2;
             y = mi.rcMonitor.top + static_cast<int>(std::lround(DockTopOffset * scale_));
+        }
+        else if (HiddenMode())
+        {
+            SummonPosition(x, y);
         }
         SetWindowPos(hwnd_, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE);
         regionDirty_ = true;
@@ -306,6 +319,11 @@ namespace dm
         {
             shrinkPending_ = false;
             PlaceWindow();
+        }
+        if (!animating_ && hidePending_ && !scene_.VisibleNow())
+        {
+            hidePending_ = false;
+            ShowWindow(hwnd_, SW_HIDE);
         }
     }
 
@@ -513,8 +531,10 @@ namespace dm
             SetForegroundWindow(hwnd_);
             return;
         }
-        HWND fg = GetForegroundWindow();
-        previousForeground_ = fg != hwnd_ ? fg : nullptr;
+        if (HiddenMode() && !summoned_)
+        {
+            Summon();
+        }
         runOpen_ = true;
         shrinkPending_ = false;
         hover_ = -1;
@@ -528,14 +548,13 @@ namespace dm
         scene_.SetRunOpen(true);
         PushInput(true);
 
-        SetWindowLongPtrW(hwnd_, GWL_EXSTYLE, GetWindowLongPtrW(hwnd_, GWL_EXSTYLE) & ~WS_EX_NOACTIVATE);
         PlaceWindow();
-        SetForegroundWindow(hwnd_);
-        SetFocus(hwnd_);
+        Activate();
         UpdateIme();
         Kick();
     }
 
+    // In the center and cursor modes, the toolbar hides when the run box closes.
     void App::CloseRun(bool restoreFocus)
     {
         if (!runOpen_)
@@ -550,15 +569,137 @@ namespace dm
             ReleaseCapture();
         }
         scene_.SetRunOpen(false);
-        SetWindowLongPtrW(hwnd_, GWL_EXSTYLE, GetWindowLongPtrW(hwnd_, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
         shrinkPending_ = true;
+        if (summoned_)
+        {
+            Dismiss(restoreFocus);
+            return;
+        }
+        Deactivate(restoreFocus);
+        RefreshHoverFromCursor();
+        Kick();
+    }
+
+    // The window takes the keyboard focus while the run box is open or while a
+    // hotkey shows the toolbar. At other times, clicks do not activate it.
+    void App::Activate()
+    {
+        if (!previousForeground_)
+        {
+            HWND fg = GetForegroundWindow();
+            previousForeground_ = fg != hwnd_ ? fg : nullptr;
+        }
+        SetWindowLongPtrW(hwnd_, GWL_EXSTYLE, GetWindowLongPtrW(hwnd_, GWL_EXSTYLE) & ~WS_EX_NOACTIVATE);
+        SetForegroundWindow(hwnd_);
+        SetFocus(hwnd_);
+    }
+
+    void App::Deactivate(bool restoreFocus)
+    {
+        SetWindowLongPtrW(hwnd_, GWL_EXSTYLE, GetWindowLongPtrW(hwnd_, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
         if (restoreFocus && GetForegroundWindow() == hwnd_ && previousForeground_ && IsWindow(previousForeground_))
         {
             SetForegroundWindow(previousForeground_);
         }
         previousForeground_ = nullptr;
-        RefreshHoverFromCursor();
+    }
+
+    bool App::HiddenMode() const
+    {
+        return config_.mode == PositionMode::Center || config_.mode == PositionMode::Cursor;
+    }
+
+    // Persistent modes show the toolbar at all times. Hidden modes show it
+    // only after the hotkey.
+    void App::UpdateVisibility()
+    {
+        if (!HiddenMode())
+        {
+            summoned_ = false;
+            hidePending_ = false;
+            scene_.SnapVisible(true);
+            ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+        }
+        else if (!summoned_)
+        {
+            scene_.SnapVisible(false);
+            ShowWindow(hwnd_, SW_HIDE);
+        }
         Kick();
+    }
+
+    void App::Summon()
+    {
+        if (summoned_)
+        {
+            return;
+        }
+        summoned_ = true;
+        hidePending_ = false;
+        GetCursorPos(&summonCursor_);
+        hover_ = -1;
+        scene_.SetHover(-1);
+        scene_.SetVisible(true, config_.mode == PositionMode::Cursor);
+        PlaceWindow();
+        UpdateRegion();
+        ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+        Activate();
+        Kick();
+    }
+
+    void App::Dismiss(bool restoreFocus)
+    {
+        if (!summoned_)
+        {
+            return;
+        }
+        if (runOpen_)
+        {
+            // CloseRun calls Dismiss again after it closes the run box.
+            CloseRun(restoreFocus);
+            return;
+        }
+        summoned_ = false;
+        Deactivate(restoreFocus);
+        hover_ = -1;
+        scene_.SetHover(-1);
+        scene_.SetOrbHover(false);
+        scene_.SetVisible(false, config_.mode == PositionMode::Cursor);
+        hidePending_ = true;
+        Kick();
+    }
+
+    // Center mode: the toolbar center is at 42% of the work area height, like
+    // a dialog. Cursor mode: the orb is just below and right of the pointer.
+    // Both modes use the monitor of the pointer and keep the run results in
+    // the work area.
+    void App::SummonPosition(int& x, int& y)
+    {
+        HMONITOR mon = MonitorFromPoint(summonCursor_, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi{ sizeof(mi) };
+        GetMonitorInfoW(mon, &mi);
+        const RECT wa = mi.rcWork;
+        const RECT track = scene_.RestTrackRect();
+        const int trackW = track.right - track.left;
+        const int margin = static_cast<int>(std::lround(8 * scale_));
+        const int fullH = static_cast<int>(std::ceil(Scene::RunWindowHeight() * scale_));
+
+        int trackLeft, top;
+        if (config_.mode == PositionMode::Center)
+        {
+            trackLeft = (wa.left + wa.right) / 2 - trackW / 2;
+            top = wa.top + static_cast<int>((wa.bottom - wa.top) * 0.42f) - static_cast<int>(std::lround(BarHeight * scale_ / 2));
+        }
+        else
+        {
+            trackLeft = summonCursor_.x - static_cast<int>(std::lround(24 * scale_));
+            top = summonCursor_.y + static_cast<int>(std::lround(18 * scale_));
+        }
+        const int left = wa.left + margin, right = wa.right - margin, topEdge = wa.top + margin, bottom = wa.bottom - margin;
+        trackLeft = std::clamp(trackLeft, left, std::max(left, right - trackW));
+        top = std::clamp(top, topEdge, std::max(topEdge, bottom - fullH));
+        x = trackLeft - track.left;
+        y = top;
     }
 
     // The candidates are the toolbar apps and the apps in the Start menu.
@@ -934,10 +1075,10 @@ namespace dm
         switch (cmd)
         {
         case CmdOpen:
-            LaunchItem(hwnd_, item, false);
+            OpenItem(index, false);
             break;
         case CmdRunAsAdmin:
-            LaunchItem(hwnd_, item, true);
+            OpenItem(index, true);
             break;
         case CmdOpenLocation:
             OpenFileLocation(item.path);
@@ -966,9 +1107,12 @@ namespace dm
         if (item.IsWidget())
         {
             OpenTarget(item.click.empty() ? Widgets::DefaultClick(*item.widget) : item.click);
-            return;
         }
-        LaunchItem(hwnd_, item, admin || item.admin);
+        else
+        {
+            LaunchItem(hwnd_, item, admin || item.admin);
+        }
+        Dismiss(false);
     }
 
     void App::ShowWidgetMenu(int index, POINT screen)
@@ -1108,11 +1252,18 @@ namespace dm
         switch (msg)
         {
         case WM_MOUSEACTIVATE:
-            return runOpen_ ? MA_ACTIVATE : MA_NOACTIVATE;
+            return (runOpen_ || summoned_) ? MA_ACTIVATE : MA_NOACTIVATE;
         case WM_ACTIVATE:
-            if (LOWORD(wp) == WA_INACTIVE && runOpen_)
+            if (LOWORD(wp) == WA_INACTIVE && !menuOpen_)
             {
-                CloseRun(false);
+                if (runOpen_)
+                {
+                    CloseRun(false);
+                }
+                else if (summoned_)
+                {
+                    Dismiss(false);
+                }
             }
             return 0;
         case WM_HOTKEY:
@@ -1127,10 +1278,26 @@ namespace dm
                     OpenRun();
                 }
             }
+            else if (wp == HotkeyToggle && HiddenMode())
+            {
+                if (summoned_)
+                {
+                    Dismiss(true);
+                }
+                else
+                {
+                    Summon();
+                }
+            }
             return 0;
         case WM_KEYDOWN:
             if (runOpen_ && OnRunKey(static_cast<UINT>(wp)))
             {
+                return 0;
+            }
+            if (!runOpen_ && summoned_ && wp == VK_ESCAPE)
+            {
+                Dismiss(true);
                 return 0;
             }
             break;

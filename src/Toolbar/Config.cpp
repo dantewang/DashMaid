@@ -223,6 +223,7 @@ namespace dm
         if (auto hk = o.GetNamedObject(L"hotkeys", nullptr))
         {
             c.runHotkey = hk.GetNamedString(L"run", c.runHotkey.c_str());
+            c.toggleHotkey = hk.GetNamedString(L"toggle", c.toggleHotkey.c_str());
         }
         for (auto&& v : o.GetNamedArray(L"items", JsonArray()))
         {
@@ -292,6 +293,7 @@ namespace dm
 
         JsonObject hk;
         hk.SetNamedValue(L"run", JsonValue::CreateStringValue(runHotkey));
+        hk.SetNamedValue(L"toggle", JsonValue::CreateStringValue(toggleHotkey));
         o.SetNamedValue(L"hotkeys", hk);
 
         JsonArray arr;

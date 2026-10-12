@@ -44,6 +44,7 @@ namespace dm
         bool widgetsCollapse = false;  // False: widgets always show their text.
         SpringParams spring;
         std::wstring runHotkey = L"Ctrl+Alt+R";  // Empty: no hotkey.
+        std::wstring toggleHotkey = L"Alt+`";     // Shows and hides the toolbar in the center and cursor modes.
         std::vector<Item> items;
 
         static std::filesystem::path FilePath();

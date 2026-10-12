@@ -4,7 +4,7 @@ DashMaid is a Windows desktop launcher. It shows a toolbar that stays above all 
 
 ## Status
 
-The toolbar process works for app items: icons, the hover animation, click to start, the right-click menu, drag to move, and the tray icon. The run box works: the round button or the run hotkey opens it. It searches the toolbar apps and the Start menu apps (name, path, and pinyin initials), and it runs commands like the Windows Run dialog. Widgets work: clock, CPU, memory, network, and command output. The hotkey positions, AppBar registration, and the settings window do not exist yet. The 设置 menu command opens `config.json` in Notepad until the settings window exists.
+The toolbar process works for app items: icons, the hover animation, click to start, the right-click menu, drag to move, and the tray icon. The run box works: the round button or the run hotkey opens it. It searches the toolbar apps and the Start menu apps (name, path, and pinyin initials), and it runs commands like the Windows Run dialog. Widgets work: clock, CPU, memory, network, and command output. The center and cursor modes work: the toggle hotkey shows the toolbar, and Esc, the hotkey, a click outside, or a started app hides it. AppBar registration and the settings window do not exist yet. The 设置 menu command opens `config.json` in Notepad until the settings window exists.
 
 An HTML prototype shows the interaction and the layout. The prototype is published as a private Artifact at https://claude.ai/artifact/HguynqyhfMH1omXntvjZMg. A local copy is at `prototype/dashmaid.html`. Git ignores the `prototype/` folder. Do not commit the prototype.
 
@@ -67,7 +67,7 @@ The output is `build\src\Toolbar\Debug\DashMaid.exe`. Only one instance runs at 
 - `theme`: `dark` or `light`. `material`: `acrylic` or `solid`. `collapsedStyle`: `slice` or `glow`.
 - `widgetDisplay`: `text` (widgets always show their text) or `collapse` (widgets collapse like app items).
 - `spring`: `stiffness`, `damping`.
-- `hotkeys`: `run` (default `Ctrl+Alt+R`). An empty string disables the hotkey.
+- `hotkeys`: `run` (default `Ctrl+Alt+R`) and `toggle` (default `Alt+``, registered only in the `center` and `cursor` modes). An empty string disables a hotkey.
 - `items`: array of objects. The toolbar shows them in this order.
   - App: `type` (`app`), `name`, `path`, `args`, `workingDir`, `style` (`default`, `slice`, `glow`), `admin`.
   - Widget: `type` (`widget`), `source` (`clock`, `cpu`, `memory`, `network`, `command`), `click` (the file, URI, or program that a click opens. If `click` is empty, the toolbar uses the default of the source). A command widget also has `name`, `command` (runs through `cmd.exe /c`), `interval` (seconds), and optional `color` (`#RRGGBB`, text color in the dark theme).

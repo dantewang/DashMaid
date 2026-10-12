@@ -41,6 +41,13 @@ namespace dm
 
         void OpenRun();
         void CloseRun(bool restoreFocus);
+        void Activate();
+        void Deactivate(bool restoreFocus);
+        bool HiddenMode() const;
+        void UpdateVisibility();
+        void Summon();
+        void Dismiss(bool restoreFocus);
+        void SummonPosition(int& x, int& y);
         void RegisterHotkeys();
         void BuildCandidates();
         void UpdateResults();
@@ -110,6 +117,9 @@ namespace dm
         };
         bool runOpen_ = false;
         bool shrinkPending_ = false;
+        bool summoned_ = false;     // Center and cursor modes: the hotkey showed the toolbar.
+        bool hidePending_ = false;  // Hide the window when the hide animation ends.
+        POINT summonCursor_{};
         HWND previousForeground_ = nullptr;
         TextEdit edit_;
         wchar_t pendingHigh_ = 0;
