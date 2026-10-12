@@ -22,6 +22,17 @@ namespace dm::metrics
     constexpr float AppH[3] = { 18.f, 22.f, 26.f };
     constexpr float AppExpanded = 38.f;
 
+    // Widgets. Index 0: idle. Index 1: second neighbor. Index 2: first neighbor.
+    constexpr float WidgetW[3] = { 6.f, 7.f, 8.f };
+    constexpr float WidgetH[3] = { 16.f, 20.f, 24.f };
+    constexpr float WidgetExpandedH = 34.f;
+    constexpr float WidgetPadX = 13.f;
+    constexpr float WidgetMaxW = 360.f;
+    constexpr float ChipH = 28.f;  // A widget that always shows its text.
+    constexpr float ChipPadX = 10.f;
+    constexpr float WidgetFontSize = 13.f;
+    constexpr float WidgetLineHeight = 18.f;
+
     // Run box.
     constexpr float RunWidth = 330.f;
     constexpr float RunTextLeft = 12.f;

@@ -23,6 +23,36 @@ namespace dm
         constexpr EnumName<Theme> ThemeNames[] = { { Theme::Dark, L"dark" }, { Theme::Light, L"light" } };
         constexpr EnumName<Material> MaterialNames[] = { { Material::Acrylic, L"acrylic" }, { Material::Solid, L"solid" } };
         constexpr EnumName<CollapsedStyle> StyleNames[] = { { CollapsedStyle::Slice, L"slice" }, { CollapsedStyle::Glow, L"glow" } };
+        constexpr EnumName<WidgetSource> SourceNames[] = {
+            { WidgetSource::Clock, L"clock" },
+            { WidgetSource::Cpu, L"cpu" },
+            { WidgetSource::Memory, L"memory" },
+            { WidgetSource::Network, L"network" },
+            { WidgetSource::Command, L"command" },
+        };
+
+        std::optional<Rgb> ParseColor(std::wstring_view s)
+        {
+            if (s.size() != 7 || s[0] != L'#')
+            {
+                return std::nullopt;
+            }
+            wchar_t* end = nullptr;
+            const std::wstring hex(s.substr(1));
+            const unsigned long v = wcstoul(hex.c_str(), &end, 16);
+            if (end != hex.c_str() + hex.size())
+            {
+                return std::nullopt;
+            }
+            return Rgb{ static_cast<float>((v >> 16) & 0xFF), static_cast<float>((v >> 8) & 0xFF), static_cast<float>(v & 0xFF) };
+        }
+
+        std::wstring FormatColor(Rgb c)
+        {
+            wchar_t buf[8];
+            swprintf_s(buf, L"#%02X%02X%02X", static_cast<unsigned>(c.r), static_cast<unsigned>(c.g), static_cast<unsigned>(c.b));
+            return buf;
+        }
 
         template <class E, size_t N>
         E Parse(const EnumName<E> (&names)[N], const winrt::hstring& s, E fallback)
@@ -57,22 +87,57 @@ namespace dm
             return GetFileAttributesW(buf) != INVALID_FILE_ATTRIBUTES;
         }
 
-        std::string ReadFile(const std::filesystem::path& p, bool& ok)
+        enum class ReadResult { Ok, Missing, Failed };
+
+        // Other programs can hold the file for a short time while they save it,
+        // so a sharing violation causes a retry.
+        ReadResult ReadFile(const std::filesystem::path& p, std::string& text)
         {
-            std::ifstream f(p, std::ios::binary);
-            ok = f.good();
+            HANDLE h = INVALID_HANDLE_VALUE;
+            for (int attempt = 0; attempt < 10; ++attempt)
+            {
+                h = CreateFileW(p.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+                if (h != INVALID_HANDLE_VALUE)
+                {
+                    break;
+                }
+                const DWORD error = GetLastError();
+                if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND)
+                {
+                    // A program that replaces the file can delete it for a moment.
+                    if (attempt >= 2)
+                    {
+                        return ReadResult::Missing;
+                    }
+                }
+                else if (error != ERROR_SHARING_VIOLATION && error != ERROR_ACCESS_DENIED)
+                {
+                    return ReadResult::Failed;
+                }
+                Sleep(20);
+            }
+            if (h == INVALID_HANDLE_VALUE)
+            {
+                return ReadResult::Failed;
+            }
+
+            LARGE_INTEGER size{};
+            bool ok = GetFileSizeEx(h, &size) && size.QuadPart < (16 << 20);
+            text.assign(ok ? static_cast<size_t>(size.QuadPart) : 0, '\0');
+            DWORD got = 0;
+            ok = ok && (text.empty() || ::ReadFile(h, text.data(), static_cast<DWORD>(text.size()), &got, nullptr));
+            CloseHandle(h);
             if (!ok)
             {
-                return {};
+                return ReadResult::Failed;
             }
-            std::ostringstream ss;
-            ss << f.rdbuf();
-            std::string s = ss.str();
-            if (s.size() >= 3 && s.compare(0, 3, "\xEF\xBB\xBF") == 0)
+            text.resize(got);
+            if (text.size() >= 3 && text.compare(0, 3, "\xEF\xBB\xBF") == 0)
             {
-                s.erase(0, 3);
+                text.erase(0, 3);
             }
-            return s;
+            return ReadResult::Ok;
         }
     }
 
@@ -88,7 +153,7 @@ namespace dm
     Config Config::Defaults()
     {
         Config c;
-        const AppItem candidates[] = {
+        const Item candidates[] = {
             { L"文件资源管理器", L"C:\\Windows\\explorer.exe" },
             { L"终端", L"%LOCALAPPDATA%\\Microsoft\\WindowsApps\\wt.exe" },
             { L"记事本", L"C:\\Windows\\System32\\notepad.exe" },
@@ -105,26 +170,35 @@ namespace dm
                 c.items.push_back(a);
             }
         }
+        for (WidgetSource s : { WidgetSource::Cpu, WidgetSource::Clock })
+        {
+            Item w;
+            w.widget = s;
+            c.items.push_back(w);
+        }
         return c;
     }
 
-    Config Config::Load(std::string& text)
+    std::optional<Config> Config::Load(std::string& text)
     {
         const auto path = FilePath();
-        bool ok = false;
-        text = ReadFile(path, ok);
-        if (!ok)
+        const ReadResult r = ReadFile(path, text);
+        if (r == ReadResult::Missing)
         {
             Config c = Defaults();
             text = c.Save();
             return c;
+        }
+        if (r == ReadResult::Failed)
+        {
+            return std::nullopt;
         }
 
         JsonObject o{ nullptr };
         if (!JsonObject::TryParse(winrt::to_hstring(text), o))
         {
             // Keep the file as it is. The user can correct it.
-            return Defaults();
+            return std::nullopt;
         }
 
         Config c;
@@ -140,6 +214,7 @@ namespace dm
         c.theme = Parse(ThemeNames, o.GetNamedString(L"theme", L"dark"), Theme::Dark);
         c.material = Parse(MaterialNames, o.GetNamedString(L"material", L"acrylic"), Material::Acrylic);
         c.collapsedStyle = Parse(StyleNames, o.GetNamedString(L"collapsedStyle", L"slice"), CollapsedStyle::Slice);
+        c.widgetsCollapse = o.GetNamedString(L"widgetDisplay", L"text") == L"collapse";
         if (auto sp = o.GetNamedObject(L"spring", nullptr))
         {
             c.spring.stiffness = static_cast<float>(std::clamp(sp.GetNamedNumber(L"stiffness", 420), 50.0, 2000.0));
@@ -156,11 +231,24 @@ namespace dm
                 continue;
             }
             auto io = v.GetObject();
-            if (io.GetNamedString(L"type", L"app") != L"app")
+            const auto type = io.GetNamedString(L"type", L"app");
+            if (type == L"widget")
+            {
+                Item w;
+                w.widget = Parse(SourceNames, io.GetNamedString(L"source", L"clock"), WidgetSource::Clock);
+                w.name = io.GetNamedString(L"name", L"");
+                w.command = io.GetNamedString(L"command", L"");
+                w.interval = static_cast<int>(std::clamp(io.GetNamedNumber(L"interval", 60), 1.0, 86400.0));
+                w.click = io.GetNamedString(L"click", L"");
+                w.color = ParseColor(io.GetNamedString(L"color", L""));
+                c.items.push_back(std::move(w));
+                continue;
+            }
+            if (type != L"app")
             {
                 continue;
             }
-            AppItem a;
+            Item a;
             a.name = io.GetNamedString(L"name", L"");
             a.path = io.GetNamedString(L"path", L"");
             a.args = io.GetNamedString(L"args", L"");
@@ -195,6 +283,7 @@ namespace dm
         o.SetNamedValue(L"theme", JsonValue::CreateStringValue(Name(ThemeNames, theme)));
         o.SetNamedValue(L"material", JsonValue::CreateStringValue(Name(MaterialNames, material)));
         o.SetNamedValue(L"collapsedStyle", JsonValue::CreateStringValue(Name(StyleNames, collapsedStyle)));
+        o.SetNamedValue(L"widgetDisplay", JsonValue::CreateStringValue(widgetsCollapse ? L"collapse" : L"text"));
 
         JsonObject sp;
         sp.SetNamedValue(L"stiffness", JsonValue::CreateNumberValue(spring.stiffness));
@@ -209,6 +298,24 @@ namespace dm
         for (auto& a : items)
         {
             JsonObject io;
+            if (a.widget)
+            {
+                io.SetNamedValue(L"type", JsonValue::CreateStringValue(L"widget"));
+                io.SetNamedValue(L"source", JsonValue::CreateStringValue(Name(SourceNames, *a.widget)));
+                if (*a.widget == WidgetSource::Command)
+                {
+                    io.SetNamedValue(L"name", JsonValue::CreateStringValue(a.name));
+                    io.SetNamedValue(L"command", JsonValue::CreateStringValue(a.command));
+                    io.SetNamedValue(L"interval", JsonValue::CreateNumberValue(a.interval));
+                }
+                io.SetNamedValue(L"click", JsonValue::CreateStringValue(a.click));
+                if (a.color)
+                {
+                    io.SetNamedValue(L"color", JsonValue::CreateStringValue(FormatColor(*a.color)));
+                }
+                arr.Append(io);
+                continue;
+            }
             io.SetNamedValue(L"type", JsonValue::CreateStringValue(L"app"));
             io.SetNamedValue(L"name", JsonValue::CreateStringValue(a.name));
             io.SetNamedValue(L"path", JsonValue::CreateStringValue(a.path));

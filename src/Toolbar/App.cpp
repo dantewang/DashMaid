@@ -15,8 +15,11 @@ namespace dm
         constexpr wchar_t WindowClass[] = L"DashMaid.Toolbar";
         constexpr UINT TrayMessage = WM_APP + 1;
         constexpr UINT CatalogMessage = WM_APP + 2;
+        constexpr UINT WidgetMessage = WM_APP + 3;
         constexpr UINT TrayId = 1;
         constexpr UINT_PTR MenuTimer = 1;
+        constexpr UINT_PTR WidgetTimer = 2;
+        constexpr UINT_PTR ConfigRetryTimer = 3;
         constexpr int HotkeyRun = 1;
         constexpr UINT IconSourcePx = 128;
         constexpr UINT ResultIconPx = 64;
@@ -91,7 +94,9 @@ namespace dm
         scale_ = GetDpiForWindow(hwnd_) / 96.f;
         scene_.Initialize(hwnd_, scale_);
 
-        config_ = Config::Load(configText_);
+        auto loaded = Config::Load(configText_);
+        configBroken_ = !loaded;
+        config_ = loaded ? std::move(*loaded) : Config::Defaults();
         ApplyConfig();
 
         const auto dir = Config::FilePath().parent_path();
@@ -148,6 +153,7 @@ namespace dm
     void App::ApplyConfig()
     {
         scene_.SetAppearance(config_.theme, config_.material, config_.collapsedStyle, config_.spring);
+        scene_.SetWidgetsCollapse(config_.widgetsCollapse);
         LoadItems();
         if (config_.x == Config::Unset || config_.y == Config::Unset ||
             !MonitorFromPoint({ config_.x, config_.y + 1 }, MONITOR_DEFAULTTONULL))
@@ -183,10 +189,22 @@ namespace dm
         items.reserve(config_.items.size());
         for (auto& a : config_.items)
         {
+            if (a.IsWidget())
+            {
+                items.push_back({ nullptr, {}, std::nullopt, true, a.color });
+                continue;
+            }
             IconData icon = LoadAppIcon(wic_.get(), a.path, IconSourcePx);
-            items.push_back({ icon.bitmap, icon.main, a.style });
+            items.push_back({ icon.bitmap, icon.main, a.style, false, std::nullopt });
         }
         scene_.SetItems(std::move(items));
+        widgets_.Configure(config_.items, hwnd_, WidgetMessage);
+        ApplyWidgetText(widgets_.Update(true));
+        KillTimer(hwnd_, WidgetTimer);
+        if (!widgets_.Empty())
+        {
+            ArmWidgetTimer();
+        }
         hover_ = -1;
         regionDirty_ = true;
     }
@@ -231,19 +249,34 @@ namespace dm
 
     void App::SaveConfig()
     {
+        if (configBroken_)
+        {
+            return;
+        }
         configText_ = config_.Save();
     }
 
     void App::OnConfigFileChanged()
     {
         std::string text;
-        Config next = Config::Load(text);
+        auto next = Config::Load(text);
+        if (!next)
+        {
+            // The file is not valid now. Keep the current settings, and do not
+            // write the file, so that the changes of the user stay. Try again later
+            // because another program can still hold the file.
+            configBroken_ = true;
+            SetTimer(hwnd_, ConfigRetryTimer, 1000, nullptr);
+            return;
+        }
+        configBroken_ = false;
+        KillTimer(hwnd_, ConfigRetryTimer);
         if (text == configText_)
         {
             return;
         }
         configText_ = std::move(text);
-        config_ = std::move(next);
+        config_ = std::move(*next);
         ApplyConfig();
     }
 
@@ -446,8 +479,7 @@ namespace dm
         }
         if (item >= 0 && item == scene_.HitTestItem(p) && item < static_cast<int>(config_.items.size()))
         {
-            const AppItem& a = config_.items[item];
-            LaunchItem(hwnd_, a, a.admin);
+            OpenItem(item, false);
         }
         else if (orb && scene_.HitTestOrb(p))
         {
@@ -538,7 +570,11 @@ namespace dm
 
         for (int i = 0; i < static_cast<int>(config_.items.size()); ++i)
         {
-            const AppItem& a = config_.items[i];
+            const Item& a = config_.items[i];
+            if (a.IsWidget())
+            {
+                continue;
+            }
             Candidate c;
             c.name = a.name;
             c.path = a.path;
@@ -674,7 +710,7 @@ namespace dm
         }
 
         const RunSource& src = sources_[t.source];
-        AppItem item;
+        Item item;
         if (src.item >= 0)
         {
             item = config_.items[src.item];
@@ -872,7 +908,12 @@ namespace dm
 
     void App::ShowItemMenu(int index, POINT screen)
     {
-        const AppItem item = config_.items[index];
+        const Item item = config_.items[index];
+        if (item.IsWidget())
+        {
+            ShowWidgetMenu(index, screen);
+            return;
+        }
         const bool shell = IsShellPath(item.path);
 
         HMENU menu = CreatePopupMenu();
@@ -912,6 +953,97 @@ namespace dm
             break;
         default:
             break;
+        }
+    }
+
+    void App::OpenItem(int index, bool admin)
+    {
+        if (index < 0 || index >= static_cast<int>(config_.items.size()))
+        {
+            return;
+        }
+        const Item& item = config_.items[index];
+        if (item.IsWidget())
+        {
+            OpenTarget(item.click.empty() ? Widgets::DefaultClick(*item.widget) : item.click);
+            return;
+        }
+        LaunchItem(hwnd_, item, admin || item.admin);
+    }
+
+    void App::ShowWidgetMenu(int index, POINT screen)
+    {
+        const Item item = config_.items[index];
+        const bool canOpen = !item.click.empty() || !Widgets::DefaultClick(*item.widget).empty();
+
+        HMENU menu = CreatePopupMenu();
+        AppendMenuW(menu, MF_STRING | (canOpen ? 0 : MF_GRAYED), CmdOpen, strings::Open);
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, CmdRemove, strings::Remove);
+        if (canOpen)
+        {
+            SetMenuDefaultItem(menu, CmdOpen, FALSE);
+        }
+
+        scene_.SetPinned(index);
+        const UINT cmd = ShowMenu(menu, screen);
+        DestroyMenu(menu);
+        scene_.SetPinned(-1);
+        RefreshHoverFromCursor();
+
+        if (cmd == CmdOpen)
+        {
+            OpenItem(index, false);
+        }
+        else if (cmd == CmdRemove)
+        {
+            config_.items.erase(config_.items.begin() + index);
+            SaveConfig();
+            LoadItems();
+            PlaceWindow();
+        }
+    }
+
+    void App::ApplyWidgetText(const std::vector<int>& changed)
+    {
+        bool any = false;
+        for (int index : changed)
+        {
+            const WidgetText& t = widgets_.Text(index);
+            any |= scene_.SetWidgetText(index, t.brief, t.detail);
+        }
+        if (any)
+        {
+            regionDirty_ = true;
+            FitWindowWidth();
+            Kick();
+        }
+    }
+
+    // The clock changes at the start of each second, so the timer fires just after it.
+    void App::ArmWidgetTimer()
+    {
+        SYSTEMTIME t;
+        GetLocalTime(&t);
+        SetTimer(hwnd_, WidgetTimer, 1000 - t.wMilliseconds + 15, nullptr);
+    }
+
+    // Widget text changes the widest layout of the toolbar. The window grows
+    // at once. It shrinks only while the user does not use the toolbar.
+    void App::FitWindowWidth()
+    {
+        if (!IsWindowVisible(hwnd_))
+        {
+            return;
+        }
+        RECT rc;
+        GetWindowRect(hwnd_, &rc);
+        const int current = rc.right - rc.left;
+        const int needed = static_cast<int>(std::ceil(scene_.WindowWidth() * scale_));
+        const bool idle = hover_ < 0 && !runOpen_ && !pressing_ && !menuOpen_;
+        if (needed > current || (needed < current && idle))
+        {
+            PlaceWindow();
         }
     }
 
@@ -1067,6 +1199,19 @@ namespace dm
             {
                 Frame();
             }
+            else if (wp == ConfigRetryTimer)
+            {
+                KillTimer(hwnd_, ConfigRetryTimer);
+                OnConfigFileChanged();
+            }
+            else if (wp == WidgetTimer)
+            {
+                ApplyWidgetText(widgets_.Update(true));
+                ArmWidgetTimer();
+            }
+            return 0;
+        case WidgetMessage:
+            ApplyWidgetText(widgets_.Update(false));
             return 0;
         case WM_DPICHANGED:
             scale_ = HIWORD(wp) / 96.f;

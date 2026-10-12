@@ -14,4 +14,7 @@ namespace dm::strings
     inline constexpr wchar_t StartFailed[] = L"DashMaid 无法启动。";
     inline constexpr wchar_t RunPlaceholder[] = L"运行";
     inline constexpr wchar_t RunPrefix[] = L"运行 ";
+    inline constexpr wchar_t Weekdays[] = L"日一二三四五六";
+    inline constexpr wchar_t Threads[] = L"线程";
+    inline constexpr wchar_t Memory[] = L"内存";
 }

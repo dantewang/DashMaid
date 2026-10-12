@@ -10,6 +10,8 @@ namespace dm
         winrt::com_ptr<IWICBitmapSource> icon;
         Rgb main;
         std::optional<CollapsedStyle> style;
+        bool widget = false;
+        std::optional<Rgb> textColor;  // Widget text color in the dark theme.
     };
 
     struct ResultRow
@@ -33,6 +35,9 @@ namespace dm
         void SetAppearance(Theme theme, Material material, CollapsedStyle style, SpringParams spring);
         void SetItems(std::vector<SceneItem> items);
         void SetWindowWidth(float dip) { windowWidth_ = dip; }
+        void SetWidgetsCollapse(bool collapse) { widgetsCollapse_ = collapse; }
+        // Returns true if the text changed.
+        bool SetWidgetText(int index, const std::wstring& brief, const std::wstring& detail);
 
         void SetHover(int index) { hover_ = index; }
         void SetPinned(int index) { pinned_ = index; }
@@ -80,6 +85,16 @@ namespace dm
             winrt::Windows::UI::Composition::CompositionColorBrush ringBrush{ nullptr };
             Spring w, h, tone, press;
             bool fresh = true;
+
+            // Widgets only.
+            winrt::Windows::UI::Composition::SpriteVisual label{ nullptr };
+            winrt::Windows::UI::Composition::CompositionSurfaceBrush labelBrush{ nullptr };
+            winrt::Windows::UI::Composition::CompositionDrawingSurface briefSurface{ nullptr };
+            winrt::Windows::UI::Composition::CompositionDrawingSurface detailSurface{ nullptr };
+            std::wstring brief, detail;
+            float briefW = 0.f, detailW = 0.f;
+            bool chipInk = true;
+            bool showingDetail = false;
         };
 
         // A rounded panel with the backdrop, the tint, and a border.
@@ -108,6 +123,7 @@ namespace dm
         winrt::Windows::UI::Composition::CompositionDrawingSurface RenderIcon(IWICBitmapSource* icon);
         winrt::Windows::UI::Composition::CompositionBrush SoftBrush(Rgb color);
         void RenderOrb();
+        void RenderLabel(ItemVisual& v, bool detail);
         void RenderInput();
         void RenderResults();
         void RestartCaret();
@@ -123,6 +139,7 @@ namespace dm
         Theme theme_ = Theme::Dark;
         Material material_ = Material::Acrylic;
         CollapsedStyle style_ = CollapsedStyle::Slice;
+        bool widgetsCollapse_ = false;
         SpringParams spring_;
         int hover_ = -1;
         int pinned_ = -1;
@@ -151,6 +168,8 @@ namespace dm
         winrt::com_ptr<IDWriteTextFormat> titleFormat_;
         winrt::com_ptr<IDWriteTextFormat> subtitleFormat_;
         winrt::com_ptr<IDWriteTextFormat> glyphFormat_;
+        winrt::com_ptr<IDWriteTextFormat> widgetFormat_;
+        winrt::com_ptr<IDWriteTypography> tabular_;
         // The key stays valid because the entry holds a reference to the source.
         struct CachedBitmap
         {

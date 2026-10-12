@@ -10,6 +10,7 @@ add_executable(DashMaid WIN32
     Pinyin.cpp
     Search.cpp
     TextEdit.cpp
+    Widgets.cpp
     DashMaid.manifest
 )
 
@@ -28,5 +29,5 @@ target_link_libraries(DashMaid PRIVATE
     CoreMessaging
     d3d11 dxgi d2d1 dxguid
     windowscodecs dwmapi dcomp shlwapi
-    dwrite imm32
+    dwrite imm32 pdh iphlpapi
 )

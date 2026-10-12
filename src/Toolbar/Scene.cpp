@@ -33,14 +33,23 @@ namespace dm
             uint32_t highlight;
             float selectionAlpha;
             float rowAlpha;
+            Rgb widgetStops[4];  // Collapsible widget: idle, second neighbor, first neighbor, expanded.
+            Rgb chip;            // Widget that always shows its text.
+            Color chipLine;
+            uint32_t chipInk;
+            uint32_t widgetInk;  // Text on the expanded widget.
         };
 
         const Palette& PaletteFor(Theme t)
         {
             static const Palette dark{ { 246, 246, 246 }, { 163, 30, 30, 30 }, { 255, 27, 27, 27 }, { 18, 255, 255, 255 },
-                                       0xFFFFFF, 0x8FE0CF, 0.34f, 0.1f };
+                                       0xFFFFFF, 0x8FE0CF, 0.34f, 0.1f,
+                                       { { 51, 51, 51 }, { 99, 99, 99 }, { 163, 163, 163 }, { 255, 255, 255 } },
+                                       { 46, 46, 46 }, { 15, 255, 255, 255 }, 0xD0D0D0, 0x111111 };
             static const Palette light{ { 255, 255, 255 }, { 179, 247, 247, 247 }, { 255, 244, 244, 244 }, { 15, 0, 0, 0 },
-                                        0x000000, 0x2B7A6A, 0.24f, 0.06f };
+                                        0x000000, 0x2B7A6A, 0.24f, 0.06f,
+                                        { { 206, 206, 206 }, { 158, 158, 158 }, { 98, 98, 98 }, { 24, 24, 24 } },
+                                        { 226, 226, 226 }, { 13, 0, 0, 0 }, 0x3A3A3A, 0xFFFFFF };
             return t == Theme::Light ? light : dark;
         }
 
@@ -75,6 +84,11 @@ namespace dm
         D2D1_COLOR_F D2DColor(uint32_t rgb, float a = 1.f)
         {
             return D2D1::ColorF(rgb, a);
+        }
+
+        uint32_t ToRgb32(Rgb c)
+        {
+            return (static_cast<uint32_t>(Byte(c.r)) << 16) | (static_cast<uint32_t>(Byte(c.g)) << 8) | Byte(c.b);
         }
 
         // Changes the transform so that the paint code can use DIPs.
@@ -226,6 +240,80 @@ namespace dm
         const wchar_t* glyphs = HasFont(dwrite_.get(), L"Segoe Fluent Icons") ? L"Segoe Fluent Icons" : L"Segoe MDL2 Assets";
         glyphFormat_ = make(glyphs, 16.f, false);
         glyphFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+
+        winrt::check_hresult(dwrite_->CreateTextFormat(TextFont, nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
+                                                       DWRITE_FONT_STRETCH_NORMAL, WidgetFontSize, Locale, widgetFormat_.put()));
+        widgetFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        widgetFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        // Digits of the same width keep the widget width stable while values change.
+        winrt::check_hresult(dwrite_->CreateTypography(tabular_.put()));
+        tabular_->AddFontFeature({ DWRITE_FONT_FEATURE_TAG_TABULAR_FIGURES, 1 });
+    }
+
+    void Scene::RenderLabel(ItemVisual& v, bool detail)
+    {
+        const std::wstring& text = detail ? v.detail : v.brief;
+        winrt::com_ptr<IDWriteTextLayout> layout;
+        winrt::check_hresult(dwrite_->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), widgetFormat_.get(),
+                                                       100000.f, WidgetLineHeight, layout.put()));
+        layout->SetTypography(tabular_.get(), { 0, static_cast<UINT32>(text.size()) });
+        DWRITE_TEXT_METRICS m{};
+        layout->GetMetrics(&m);
+        const float width = std::ceil(m.widthIncludingTrailingWhitespace);
+        (detail ? v.detailW : v.briefW) = width;
+
+        const Palette& pal = PaletteFor(theme_);
+        uint32_t color = pal.widgetInk;
+        if (v.chipInk)
+        {
+            color = (theme_ == Theme::Dark && v.src.textColor) ? ToRgb32(*v.src.textColor) : pal.chipInk;
+        }
+
+        auto& surface = detail ? v.detailSurface : v.briefSurface;
+        const auto px = PxSize(width + 2.f, WidgetLineHeight, scale_);
+        if (!surface)
+        {
+            surface = graphics_.CreateDrawingSurface2(px, wgd::DirectXPixelFormat::B8G8R8A8UIntNormalized,
+                                                      wgd::DirectXAlphaMode::Premultiplied);
+        }
+        else if (surface.SizeInt32() != px)
+        {
+            surface.Resize(px);
+        }
+        Paint(surface, px.Width, px.Height, [&](ID2D1DeviceContext* dc) {
+            UseDips(dc, scale_);
+            dc->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+            winrt::com_ptr<ID2D1SolidColorBrush> brush;
+            dc->CreateSolidColorBrush(D2DColor(color), brush.put());
+            dc->DrawTextLayout({ 1.f, 0.f }, layout.get(), brush.get());
+        });
+        if (detail == v.showingDetail)
+        {
+            v.labelBrush.Surface(surface);
+        }
+    }
+
+    bool Scene::SetWidgetText(int index, const std::wstring& brief, const std::wstring& detail)
+    {
+        if (index < 0 || index >= static_cast<int>(items_.size()) || !items_[index].src.widget)
+        {
+            return false;
+        }
+        ItemVisual& v = items_[index];
+        bool changed = false;
+        if (brief != v.brief || !v.briefSurface)
+        {
+            v.brief = brief;
+            RenderLabel(v, false);
+            changed = true;
+        }
+        if (detail != v.detail || !v.detailSurface)
+        {
+            v.detail = detail;
+            RenderLabel(v, true);
+            changed = true;
+        }
+        return changed;
     }
 
     Scene::Panel Scene::CreatePanel()
@@ -584,7 +672,15 @@ namespace dm
         RenderOrb();
         for (auto& v : items_)
         {
-            v.iconBrush.Surface(RenderIcon(v.src.icon.get()));
+            if (v.src.widget)
+            {
+                RenderLabel(v, false);
+                RenderLabel(v, true);
+            }
+            else
+            {
+                v.iconBrush.Surface(RenderIcon(v.src.icon.get()));
+            }
         }
         RenderInput();
         RenderResults();
@@ -601,6 +697,14 @@ namespace dm
         {
             RenderInput();
             RenderResults();
+            for (auto& v : items_)
+            {
+                if (v.src.widget)
+                {
+                    RenderLabel(v, false);
+                    RenderLabel(v, true);
+                }
+            }
         }
     }
 
@@ -617,23 +721,12 @@ namespace dm
             v.src = std::move(src);
             auto& c = compositor_;
             v.root = c.CreateContainerVisual();
-            v.shadow = c.CreateSpriteVisual();
-            v.shadow.Brush(SoftBrush({ 0, 0, 0 }));
-            v.glow = c.CreateSpriteVisual();
-            v.glow.Brush(SoftBrush(v.src.main));
-
             v.box = c.CreateContainerVisual();
             v.clip = c.CreateRoundedRectangleGeometry();
             v.box.Clip(c.CreateGeometricClip(v.clip));
             v.plateBrush = c.CreateColorBrush();
             v.plate = c.CreateSpriteVisual();
             v.plate.Brush(v.plateBrush);
-            v.iconBrush = c.CreateSurfaceBrush(RenderIcon(v.src.icon.get()));
-            v.iconBrush.Stretch(wuc::CompositionStretch::Uniform);
-            v.icon = c.CreateSpriteVisual();
-            v.icon.Brush(v.iconBrush);
-            v.dim = c.CreateSpriteVisual();
-            v.dim.Brush(c.CreateColorBrush({ 255, 0, 0, 0 }));
             v.ringGeom = c.CreateRoundedRectangleGeometry();
             v.ringBrush = c.CreateColorBrush();
             auto shape = c.CreateSpriteShape(v.ringGeom);
@@ -643,13 +736,36 @@ namespace dm
             v.ring.Shapes().Append(shape);
 
             auto box = v.box.Children();
-            box.InsertAtTop(v.plate);
-            box.InsertAtTop(v.icon);
-            box.InsertAtTop(v.dim);
-            box.InsertAtTop(v.ring);
             auto root = v.root.Children();
-            root.InsertAtTop(v.shadow);
-            root.InsertAtTop(v.glow);
+            box.InsertAtTop(v.plate);
+            if (v.src.widget)
+            {
+                v.labelBrush = c.CreateSurfaceBrush();
+                v.labelBrush.Stretch(wuc::CompositionStretch::None);
+                v.labelBrush.HorizontalAlignmentRatio(0.f);
+                v.labelBrush.VerticalAlignmentRatio(0.f);
+                v.label = c.CreateSpriteVisual();
+                v.label.Brush(v.labelBrush);
+                box.InsertAtTop(v.label);
+            }
+            else
+            {
+                v.shadow = c.CreateSpriteVisual();
+                v.shadow.Brush(SoftBrush({ 0, 0, 0 }));
+                v.glow = c.CreateSpriteVisual();
+                v.glow.Brush(SoftBrush(v.src.main));
+                v.iconBrush = c.CreateSurfaceBrush(RenderIcon(v.src.icon.get()));
+                v.iconBrush.Stretch(wuc::CompositionStretch::Uniform);
+                v.icon = c.CreateSpriteVisual();
+                v.icon.Brush(v.iconBrush);
+                v.dim = c.CreateSpriteVisual();
+                v.dim.Brush(c.CreateColorBrush({ 255, 0, 0, 0 }));
+                box.InsertAtTop(v.icon);
+                box.InsertAtTop(v.dim);
+                root.InsertAtTop(v.shadow);
+                root.InsertAtTop(v.glow);
+            }
+            box.InsertAtTop(v.ring);
             root.InsertAtTop(v.box);
             itemsLayer_.Children().InsertAtTop(v.root);
 
@@ -709,13 +825,36 @@ namespace dm
     void Scene::Targets(int index, int hovered, float& w, float& h, float& tone) const
     {
         const int d = hovered < 0 ? 99 : std::abs(index - hovered);
+        const ItemVisual& v = items_[index];
+        const int level = d == 1 ? 2 : d == 2 ? 1 : 0;
+        if (v.src.widget)
+        {
+            if (d == 0)
+            {
+                w = std::min(v.detailW + WidgetPadX * 2, WidgetMaxW);
+                h = WidgetExpandedH;
+                tone = 3.f;
+            }
+            else if (!widgetsCollapse_)
+            {
+                w = std::min(v.briefW + ChipPadX * 2, WidgetMaxW);
+                h = ChipH;
+                tone = 2.f;
+            }
+            else
+            {
+                w = WidgetW[level];
+                h = WidgetH[level];
+                tone = static_cast<float>(level);
+            }
+            return;
+        }
         if (d == 0)
         {
             w = h = AppExpanded;
             tone = 3.f;
             return;
         }
-        const int level = d == 1 ? 2 : d == 2 ? 1 : 0;
         w = AppW[level];
         h = AppH[level];
         tone = static_cast<float>(level);
@@ -999,11 +1138,48 @@ namespace dm
             v.clip.Size({ W, H });
             v.clip.CornerRadius({ rr, rr });
             v.plate.Size({ W, H });
-            v.dim.Size({ W, H });
+            if (v.dim)
+            {
+                v.dim.Size({ W, H });
+            }
             v.ring.Size({ W, H });
             v.ringGeom.Offset({ 0.5f, 0.5f });
             v.ringGeom.Size({ std::max(0.f, W - 1), std::max(0.f, H - 1) });
             v.ringGeom.CornerRadius({ std::max(0.f, rr - 0.5f), std::max(0.f, rr - 0.5f) });
+
+            if (v.src.widget)
+            {
+                const float t = v.tone.x;
+                const float pa = Clamp01(t - 2.f);
+                const bool chip = !widgetsCollapse_;
+                v.plateBrush.Color(ToColor(chip ? Mix(pal.chip, pal.widgetStops[3], pa) : Stops(pal.widgetStops, t)));
+                v.ringBrush.Color(chip ? pal.chipLine : Color{ 0, 0, 0, 0 });
+
+                // The text color changes once, at the middle of the expansion.
+                const bool chipInk = chip && pa < 0.5f;
+                if (chipInk != v.chipInk)
+                {
+                    v.chipInk = chipInk;
+                    RenderLabel(v, false);
+                    RenderLabel(v, true);
+                }
+                const bool showDetail = v.tone.target >= 3.f;
+                if (showDetail != v.showingDetail)
+                {
+                    v.showingDetail = showDetail;
+                    v.labelBrush.Surface(showDetail ? v.detailSurface : v.briefSurface);
+                }
+                const auto surface = showDetail ? v.detailSurface : v.briefSurface;
+                if (surface)
+                {
+                    const auto px = surface.SizeInt32();
+                    const float lw = static_cast<float>(px.Width), lh = static_cast<float>(px.Height);
+                    v.label.Size({ lw, lh });
+                    v.label.Offset({ std::round((W - lw) / 2), std::round((H - lh) / 2), 0 });
+                }
+                v.label.Opacity(chip ? 1.f : pa * pa);
+                continue;
+            }
 
             const float t = v.tone.x;
             const float pa = Clamp01(t - 2.f);

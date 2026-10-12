@@ -1,6 +1,11 @@
 #pragma once
 
 #include <windows.h>
+#include <winsock2.h>
+#include <ws2ipdef.h>
+#include <iphlpapi.h>
+#include <pdh.h>
+#include <pdhmsg.h>
 #include <windowsx.h>
 #include <unknwn.h>
 #include <shellapi.h>

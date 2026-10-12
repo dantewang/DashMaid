@@ -4,6 +4,7 @@
 #include "AppCatalog.h"
 #include "Scene.h"
 #include "Search.h"
+#include "Widgets.h"
 #include "TextEdit.h"
 
 namespace dm
@@ -57,6 +58,11 @@ namespace dm
         UINT ShowMenu(HMENU menu, POINT screen);
         void ShowItemMenu(int index, POINT screen);
         void ShowAppMenu(POINT screen);
+        void ShowWidgetMenu(int index, POINT screen);
+        void OpenItem(int index, bool admin);
+        void ApplyWidgetText(const std::vector<int>& changed);
+        void ArmWidgetTimer();
+        void FitWindowWidth();
         void AddTrayIcon();
         void RemoveTrayIcon();
 
@@ -64,7 +70,9 @@ namespace dm
         HWND hwnd_ = nullptr;
         Scene scene_;
         Config config_;
+        Widgets widgets_;
         std::string configText_;
+        bool configBroken_ = false;  // The file is not valid. Do not overwrite it.
         winrt::com_ptr<IWICImagingFactory> wic_;
         HANDLE configWatch_ = INVALID_HANDLE_VALUE;
         UINT taskbarCreated_ = 0;

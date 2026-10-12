@@ -9,7 +9,7 @@ namespace dm
         return path.size() >= 6 && _wcsnicmp(path.c_str(), L"shell:", 6) == 0;
     }
 
-    void LaunchItem(HWND owner, const AppItem& item, bool admin)
+    void LaunchItem(HWND owner, const Item& item, bool admin)
     {
         const std::wstring file = ExpandPath(item.path);
         std::wstring dir = ExpandPath(item.workingDir);
@@ -53,6 +53,20 @@ namespace dm
         sei.lpDirectory = dir.empty() ? nullptr : dir.c_str();
         sei.nShow = SW_SHOWNORMAL;
         return ShellExecuteExW(&sei) != FALSE;
+    }
+
+    void OpenTarget(const std::wstring& target)
+    {
+        if (target.empty())
+        {
+            return;
+        }
+        const std::wstring expanded = ExpandPath(target);
+        SHELLEXECUTEINFOW sei{ sizeof(sei) };
+        sei.fMask = SEE_MASK_ASYNCOK;
+        sei.lpFile = expanded.c_str();
+        sei.nShow = SW_SHOWNORMAL;
+        ShellExecuteExW(&sei);
     }
 
     void OpenFileLocation(const std::wstring& path)
