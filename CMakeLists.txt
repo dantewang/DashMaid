@@ -9,3 +9,16 @@ enable_testing()
 
 add_subdirectory(src/Toolbar)
 add_subdirectory(tests)
+
+# The settings window (C#, WinUI 3). It builds into the "Settings" folder next to DashMaid.exe.
+find_program(DOTNET dotnet REQUIRED)
+add_custom_target(Settings ALL
+    # The C++ build sets LIB for the linker. The C# compiler warns about its folders.
+    COMMAND ${CMAKE_COMMAND} -E env --unset=LIB
+            ${DOTNET} build "${CMAKE_SOURCE_DIR}/src/Settings/DashMaid.Settings.csproj"
+            -c $<CONFIG> --nologo -v:q
+            "-p:OutputPath=$<TARGET_FILE_DIR:DashMaid>/Settings/"
+            "-p:BaseIntermediateOutputPath=${CMAKE_BINARY_DIR}/src/Settings/obj/"
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/src/Settings"
+    COMMENT "Building the settings window"
+    VERBATIM)

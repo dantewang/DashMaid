@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <!-- Build files go to the CMake build folder, which Git ignores. -->
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)..\..\build\src\Settings\obj\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+</Project>

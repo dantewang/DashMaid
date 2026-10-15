@@ -105,4 +105,20 @@ namespace dm
         const std::wstring args = L"\"" + file.wstring() + L"\"";
         ShellExecuteW(nullptr, nullptr, L"notepad.exe", args.c_str(), nullptr, SW_SHOWNORMAL);
     }
+
+    // The settings window is "Settings\DashMaid.Settings.exe" next to this program.
+    // Without it, the configuration file opens in Notepad.
+    void OpenSettings()
+    {
+        wchar_t self[MAX_PATH];
+        const DWORD n = GetModuleFileNameW(nullptr, self, MAX_PATH);
+        const auto exe = std::filesystem::path(std::wstring(self, n)).parent_path() / L"Settings" / L"DashMaid.Settings.exe";
+        std::error_code ec;
+        if (n == 0 || n == MAX_PATH || !std::filesystem::exists(exe, ec))
+        {
+            OpenInNotepad(Config::FilePath());
+            return;
+        }
+        ShellExecuteW(nullptr, nullptr, exe.c_str(), nullptr, exe.parent_path().c_str(), SW_SHOWNORMAL);
+    }
 }

@@ -4,7 +4,7 @@ DashMaid is a Windows desktop launcher. It shows a toolbar that stays above all 
 
 ## Status
 
-The toolbar process works for app items: icons, the hover animation, click to start, the right-click menu, drag to move, and the tray icon. The run box works: the round button or the run hotkey opens it. It searches the toolbar apps and the Start menu apps (name, path, and pinyin initials), and it runs commands like the Windows Run dialog. Widgets work: clock, CPU, memory, network, and command output. The center and cursor modes work: the toggle hotkey shows the toolbar, and Esc, the hotkey, a click outside, or a started app hides it. The screen top mode works, with an optional AppBar. The settings window does not exist yet. The 设置 menu command opens `config.json` in Notepad until the settings window exists.
+The toolbar process works for app items: icons, the hover animation, click to start, the right-click menu, drag to move, and the tray icon. The run box works: the round button or the run hotkey opens it. It searches the toolbar apps and the Start menu apps (name, path, and pinyin initials), and it runs commands like the Windows Run dialog. Widgets work: clock, CPU, memory, network, and command output. The center and cursor modes work: the toggle hotkey shows the toolbar, and Esc, the hotkey, a click outside, or a started app hides it. The screen top mode works, with an optional AppBar. The settings window works: the 设置 menu command opens it. Changes go to `config.json` at once, and the toolbar applies them.
 
 The look of the toolbar must be the same as the prototype: colors, shadows, antialiasing, and timing. `Scene.cpp` uses the CSS values of the prototype directly. To compare, put the app and the prototype on the same plain background and compare the pixels.
 
@@ -53,6 +53,10 @@ Installed on the development machine:
   - `Paint.*`: CSS rules in Direct2D: box shadows, shadow-list interpolation, cubic-bezier timing, and transitions.
   - `Effects.*`: Direct2D effect descriptions for Composition effect brushes (blur, saturate), without Win2D.
   - `Metrics.h`: sizes in DIPs. `Strings.h`: UI text.
+- `src/Settings/`: the settings window (`DashMaid.Settings.exe`, C# and WinUI 3).
+  - `ConfigStore.cs`: read and write `config.json`. Fields that the window does not know stay in the file.
+  - `Pages.cs`: the pages (常规, 项目, 小组件, 外观, 快捷键, 关于). `Ui.cs`: layout helpers. `Shell.cs`: the "All apps" list and icons.
+  - Command-line argument `--page <general|items|widgets|look|keys|about>` opens a page.
 - `tests/`: unit tests for the code that has no UI (`ToolbarTests`). Run them with `ctest --test-dir build -C Debug`.
 - `build/`: CMake output. Git ignores this folder.
 
@@ -65,7 +69,7 @@ Run these commands from the repository root:
 "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" --build build --config Debug
 ```
 
-The output is `build\src\Toolbar\Debug\DashMaid.exe`. Only one instance runs at a time. To stop it, right-click the tray icon and select 退出.
+The output is `build\src\Toolbar\Debug\DashMaid.exe`. The build also builds the settings window into `build\src\Toolbar\Debug\Settings\DashMaid.Settings.exe`: the `Settings` CMake target runs `dotnet build`. The first build downloads the Windows App SDK packages from NuGet. Only one instance runs at a time. To stop it, right-click the tray icon and select 退出.
 
 ## Configuration file
 
@@ -89,7 +93,7 @@ The output is `build\src\Toolbar\Debug\DashMaid.exe`. Only one instance runs at 
   - Screen top: topmost and attached to the top edge. Optional AppBar registration keeps maximized windows below the toolbar.
   - Hidden until a global hotkey shows it at the center of the screen.
   - Hidden until a global hotkey shows it next to the pointer.
-- App items: the user selects an app from the Start menu lists ("Pinned" and "All apps") or selects an executable file and arguments manually.
+- App items: the user selects an app from the Start menu "All apps" list or selects an executable file and arguments manually. Windows has no public API for the "Pinned" list, so the settings window does not show it.
   - Collapsed style 1: a part of the app icon.
   - Collapsed style 2: the main color of the icon with a glow.
   - Expanded: a rounded square that shows the full icon.

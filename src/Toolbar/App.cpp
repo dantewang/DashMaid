@@ -1273,7 +1273,7 @@ namespace dm
 
         if (cmd == CmdSettings)
         {
-            OpenInNotepad(Config::FilePath());
+            OpenSettings();
         }
         else if (cmd == CmdExit)
         {

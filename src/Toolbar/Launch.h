@@ -17,4 +17,5 @@ namespace dm
     void OpenTarget(const std::wstring& target);
     void CopyToClipboard(HWND owner, const std::wstring& text);
     void OpenInNotepad(const std::filesystem::path& file);
+    void OpenSettings();
 }
