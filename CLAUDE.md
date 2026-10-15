@@ -58,6 +58,7 @@ Installed on the development machine:
 - `src/Settings/`: the settings window (`DashMaid.Settings.exe`, C# and WinUI 3).
   - `ConfigStore.cs`: read and write `config.json`. Fields that the window does not know stay in the file.
   - `Pages.cs`: the pages (常规, 项目, 小组件, 外观, 快捷键, 关于). `Ui.cs`: layout helpers. `Shell.cs`: the "All apps" list and icons.
+  - A choice of two or three values uses `Ui.Segmented` (the `.seg` buttons of the prototype). A choice of more values uses a combo box. The settings window shows no previews.
   - Command-line argument `--page <general|items|widgets|look|keys|about>` opens a page.
 - `src/Assets/DashMaid.ico`: the application icon (the logo of the prototype). Both processes use it. To make it again, run `pwsh -NoProfile -File tools\MakeIcon.ps1`.
 - `tools/`: scripts for the development.

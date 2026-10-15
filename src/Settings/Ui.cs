@@ -1,6 +1,7 @@
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Windows.UI;
@@ -103,6 +104,67 @@ public static class Ui
             }
         };
         return box;
+    }
+
+    // .seg of the prototype: a row of buttons on a sunken track. The selected
+    // button is raised. Use it for a choice of two or three values.
+    public static Border Segmented((string value, string label)[] options, string current, Action<string> changed, string label)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
+        var host = new Border
+        {
+            Child = row,
+            Padding = new Thickness(2),
+            CornerRadius = new CornerRadius(8),
+            Background = Res("ControlAltFillColorSecondaryBrush"),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        AutomationName(host, label);
+        var selected = Array.Exists(options, o => o.value == current) ? current : options[0].value;
+        var buttons = new List<(ToggleButton button, string value)>();
+        void Update()
+        {
+            foreach (var (b, v) in buttons)
+            {
+                b.IsChecked = v == selected;
+            }
+        }
+        foreach (var (value, text) in options)
+        {
+            var b = new ToggleButton
+            {
+                Content = text,
+                Padding = new Thickness(12, 4, 12, 5),
+                MinWidth = 0,
+                MinHeight = 0,
+                FontSize = 13,
+                CornerRadius = new CornerRadius(6),
+                BorderThickness = new Thickness(1),
+            };
+            var clear = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            foreach (var state in new[] { "", "PointerOver", "Pressed", "Disabled" })
+            {
+                b.Resources["ToggleButtonBackground" + state] = clear;
+                b.Resources["ToggleButtonBorderBrush" + state] = clear;
+                b.Resources["ToggleButtonForeground" + state] = Res(state == "PointerOver" ? "TextFillColorPrimaryBrush" : "TextFillColorSecondaryBrush");
+                b.Resources["ToggleButtonBackgroundChecked" + state] = Res("ControlFillColorDefaultBrush");
+                b.Resources["ToggleButtonBorderBrushChecked" + state] = Res("ControlElevationBorderBrush");
+                b.Resources["ToggleButtonForegroundChecked" + state] = Res("TextFillColorPrimaryBrush");
+            }
+            b.Click += (_, _) =>
+            {
+                if (selected != value)
+                {
+                    selected = value;
+                    changed(value);
+                }
+                Update();
+            };
+            buttons.Add((b, value));
+            row.Children.Add(b);
+        }
+        Update();
+        return host;
     }
 
     public static ToggleSwitch Toggle(bool on, Action<bool> changed, string label)

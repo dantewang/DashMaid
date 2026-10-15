@@ -59,8 +59,8 @@ public sealed class Pages
         };
         if (mode == "dock")
         {
-            rows.Add(Ui.Card("顶部样式", Ui.Combo([("float", "悬浮"), ("flush", "贴边")], ConfigStore.Str(pos, "dockStyle", "float"),
-                v => store.Change(r => store.Object("position")["dockStyle"] = v))));
+            rows.Add(Ui.Card("顶部样式", Ui.Segmented([("float", "悬浮"), ("flush", "贴边")], ConfigStore.Str(pos, "dockStyle", "float"),
+                v => store.Change(r => store.Object("position")["dockStyle"] = v), "顶部样式")));
             var monitor = ConfigStore.Str(pos, "monitor", "");
             var monitors = Monitors.List().ConvertAll(m => (m.Path, m.Name));
             monitors.Insert(0, ("", "主显示器"));
@@ -222,9 +222,9 @@ public sealed class Pages
         editor.Children.Add(Ui.Field("起始位置", cwd));
 
         var global = ConfigStore.Str(store.Root, "collapsedStyle", "slice") == "glow" ? "主题色光晕" : "图标局部";
-        editor.Children.Add(Ui.Field("收起样式", Ui.Combo(
+        editor.Children.Add(Ui.Field("收起样式", Ui.Segmented(
             [("default", $"默认（{global}）"), ("slice", "图标局部"), ("glow", "主题色光晕")],
-            ConfigStore.Str(item, "style", "default"), v => SetField(item, "style", v))));
+            ConfigStore.Str(item, "style", "default"), v => SetField(item, "style", v), "收起样式")));
 
         var admin = Ui.Toggle(ConfigStore.Bool(item, "admin", false), v => { SetField(item, "admin", v); Rebuild("items"); }, "总是以管理员身份运行");
         admin.IsEnabled = !store_;
@@ -447,8 +447,8 @@ public sealed class Pages
                 present.Add(ConfigStore.Str(i, "source"));
             }
         }
-        var display = Ui.Group(null, Ui.Card("收起方式", Ui.Combo([("text", "始终显示"), ("collapse", "可收起")],
-            ConfigStore.Str(store.Root, "widgetDisplay", "text"), v => store.Change(r => r["widgetDisplay"] = v))));
+        var display = Ui.Group(null, Ui.Card("收起方式", Ui.Segmented([("text", "始终显示"), ("collapse", "可收起")],
+            ConfigStore.Str(store.Root, "widgetDisplay", "text"), v => store.Change(r => r["widgetDisplay"] = v), "收起方式")));
 
         var builtIn = new List<UIElement>();
         foreach (var (value, label) in Sources[..4])
@@ -494,13 +494,13 @@ public sealed class Pages
     {
         var spring = store.Root["spring"];
         var colors = Ui.Group(null,
-            Ui.Card("主题", Ui.Combo([("dark", "深色"), ("light", "浅色")], ConfigStore.Str(store.Root, "theme", "dark"),
-                v => store.Change(r => r["theme"] = v))),
-            Ui.Card("背景材质", Ui.Combo([("solid", "纯色"), ("acrylic", "亚克力")], ConfigStore.Str(store.Root, "material", "solid"),
-                v => store.Change(r => r["material"] = v))));
+            Ui.Card("主题", Ui.Segmented([("dark", "深色"), ("light", "浅色")], ConfigStore.Str(store.Root, "theme", "dark"),
+                v => store.Change(r => r["theme"] = v), "主题")),
+            Ui.Card("背景材质", Ui.Segmented([("solid", "纯色"), ("acrylic", "亚克力")], ConfigStore.Str(store.Root, "material", "solid"),
+                v => store.Change(r => r["material"] = v), "背景材质")));
         var style = Ui.Group("应用收起样式",
-            Ui.Card("收起样式", Ui.Combo([("slice", "图标局部"), ("glow", "主题色光晕")],
-                ConfigStore.Str(store.Root, "collapsedStyle", "slice"), v => store.Change(r => r["collapsedStyle"] = v))));
+            Ui.Card("收起样式", Ui.Segmented([("slice", "图标局部"), ("glow", "主题色光晕")],
+                ConfigStore.Str(store.Root, "collapsedStyle", "slice"), v => store.Change(r => r["collapsedStyle"] = v), "收起样式")));
 
         UIElement SpringRow(string label, string key, int min, int max, int step, int fallback)
         {
