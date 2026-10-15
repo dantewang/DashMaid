@@ -1,0 +1,2 @@
+// The application icon. tools\MakeIcon.ps1 makes the file.
+1 ICON "../Assets/DashMaid.ico"

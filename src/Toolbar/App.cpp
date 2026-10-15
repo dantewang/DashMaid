@@ -83,6 +83,7 @@ namespace dm
         wc.lpfnWndProc = WndProc;
         wc.hInstance = instance;
         wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(1));
         wc.lpszClassName = WindowClass;
         RegisterClassExW(&wc);
 
@@ -1362,9 +1363,16 @@ namespace dm
         nid.uID = TrayId;
         nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
         nid.uCallbackMessage = TrayMessage;
-        nid.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+        // LoadIconMetric picks the image for the size of the notification area.
+        HICON icon = nullptr;
+        const bool own = SUCCEEDED(LoadIconMetric(instance_, MAKEINTRESOURCEW(1), LIM_SMALL, &icon));
+        nid.hIcon = own ? icon : LoadIconW(nullptr, IDI_APPLICATION);
         wcscpy_s(nid.szTip, strings::AppName);
         Shell_NotifyIconW(NIM_ADD, &nid);
+        if (own)
+        {
+            DestroyIcon(icon);  // The shell keeps its own copy.
+        }
     }
 
     void App::RemoveTrayIcon()

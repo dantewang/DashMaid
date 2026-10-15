@@ -13,6 +13,7 @@ add_executable(DashMaid WIN32
     Paint.cpp
     Effects.cpp
     Widgets.cpp
+    DashMaid.rc
     DashMaid.manifest
 )
 
@@ -29,6 +30,7 @@ target_compile_options(DashMaid PRIVATE /W4 /permissive- /utf-8 /EHsc /Zc:__cplu
 target_link_libraries(DashMaid PRIVATE
     windowsapp
     CoreMessaging
+    comctl32
     d3d11 dxgi d2d1 dxguid
     windowscodecs dwmapi dcomp shlwapi
     dwrite imm32 pdh iphlpapi

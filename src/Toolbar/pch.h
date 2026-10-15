@@ -9,6 +9,7 @@
 #include <windowsx.h>
 #include <unknwn.h>
 #include <shellapi.h>
+#include <commctrl.h>
 #include <shlobj.h>
 #include <shobjidl.h>
 #include <shldisp.h>

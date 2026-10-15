@@ -26,6 +26,7 @@ public sealed class MainWindow : Window
     {
         Title = App.WindowTitle;
         SystemBackdrop = new MicaBackdrop();
+        AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "DashMaid.ico"));
         ExtendsContentIntoTitleBar = true;
 
         store = new ConfigStore(DispatcherQueue);

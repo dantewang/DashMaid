@@ -53,10 +53,13 @@ Installed on the development machine:
   - `Paint.*`: CSS rules in Direct2D: box shadows, shadow-list interpolation, cubic-bezier timing, and transitions.
   - `Effects.*`: Direct2D effect descriptions for Composition effect brushes (blur, saturate), without Win2D.
   - `Metrics.h`: sizes in DIPs. `Strings.h`: UI text.
+  - `DashMaid.rc`: the application icon (resource ID 1). The window class and the tray icon use it.
 - `src/Settings/`: the settings window (`DashMaid.Settings.exe`, C# and WinUI 3).
   - `ConfigStore.cs`: read and write `config.json`. Fields that the window does not know stay in the file.
   - `Pages.cs`: the pages (常规, 项目, 小组件, 外观, 快捷键, 关于). `Ui.cs`: layout helpers. `Shell.cs`: the "All apps" list and icons.
   - Command-line argument `--page <general|items|widgets|look|keys|about>` opens a page.
+- `src/Assets/DashMaid.ico`: the application icon (the logo of the prototype). Both processes use it. To make it again, run `pwsh -NoProfile -File tools\MakeIcon.ps1`.
+- `tools/`: scripts for the development.
 - `tests/`: unit tests for the code that has no UI (`ToolbarTests`). Run them with `ctest --test-dir build -C Debug`.
 - `build/`: CMake output. Git ignores this folder.
 
