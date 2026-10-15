@@ -10,8 +10,8 @@ using Windows.UI.Core;
 
 namespace DashMaid.Settings;
 
-// The pages of the settings window. Each page is built again from the
-// configuration when it shows, and when another program changes the file.
+// The pages of the settings window, built from the configuration. The main
+// window keeps the built pages and builds them again after a change.
 public sealed class Pages
 {
     readonly ConfigStore store;
@@ -78,7 +78,29 @@ public sealed class Pages
             v => store.Change(r => r["hideFullscreen"] = v), "全屏程序运行时隐藏")));
         var startup = Ui.Group(null, Ui.Card("开机时启动", Ui.Toggle(ConfigStore.Bool(store.Root, "autostart", false),
             v => store.Change(r => r["autostart"] = v), "开机时启动")));
-        return Ui.Page("常规", Ui.Group(null, [.. rows]), startup);
+        var location = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        location.Children.Add(Ui.Button("打开文件夹", () =>
+            System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{ConfigStore.FilePath}\"")));
+        location.Children.Add(Ui.Segmented([("user", "用户文件夹"), ("app", "程序文件夹")],
+            ConfigStore.InAppFolder ? "app" : "user", v => _ = MoveConfig(v == "app"), "配置文件位置"));
+        var config = Ui.Group(null, Ui.Card("配置文件位置", location));
+        return Ui.Page("常规", Ui.Group(null, [.. rows]), startup, config);
+    }
+
+    async Task MoveConfig(bool inAppFolder)
+    {
+        if (store.MoveFile(inAppFolder))
+        {
+            return;
+        }
+        Rebuild("general");  // Show the location that did not change.
+        await new ContentDialog
+        {
+            XamlRoot = window.Content.XamlRoot,
+            Title = "无法移动配置文件",
+            Content = inAppFolder ? Path.GetDirectoryName(ConfigStore.AppPath) : Path.GetDirectoryName(ConfigStore.UserPath),
+            CloseButtonText = "确定",
+        }.ShowAsync();
     }
 
     // ------------------------------------------------------------ 项目
@@ -121,25 +143,20 @@ public sealed class Pages
         selected = items.Count == 0 ? -1 : Math.Clamp(selected, 0, items.Count - 1);
 
         var list = new ListView { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 520 };
-        for (int i = 0; i < items.Count; i++)
+        itemList = list;
+        foreach (var item in items)
         {
-            var item = items[i];
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Padding = new Thickness(0, 4, 0, 4) };
-            row.Children.Add(new Border { Width = 28, Height = 28, Child = ItemIcon(item, 24) });
-            var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            text.Children.Add(new TextBlock { Text = ItemName(item), TextTrimming = TextTrimming.CharacterEllipsis });
-            var sub = IsWidget(item) ? "小组件" : "应用" + (ConfigStore.Bool(item, "admin", false) ? " · 管理员" : "");
-            text.Children.Add(new TextBlock { Text = sub, FontSize = 12, Foreground = Ui.Res("TextFillColorSecondaryBrush") });
-            row.Children.Add(text);
-            list.Items.Add(new ListViewItem { Content = row });
+            list.Items.Add(new ListViewItem { Content = ItemRow(item) });
         }
         list.SelectedIndex = selected;
+        // A change of the selection changes only the editor. The list stays,
+        // so that it does not show its entrance animation again.
         list.SelectionChanged += (_, _) =>
         {
             if (list.SelectedIndex >= 0 && list.SelectedIndex != selected)
             {
                 selected = list.SelectedIndex;
-                Rebuild("items");
+                ShowEditor();
             }
         };
 
@@ -160,8 +177,59 @@ public sealed class Pages
         left.Children.Add(new Border { Height = 1, Background = Ui.Res("CardStrokeColorDefaultBrush") });
         left.Children.Add(list);
 
+        var grid = new Grid { ColumnSpacing = 16 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var leftPanel = Ui.Panel(left, new Thickness(0));
+        leftPanel.VerticalAlignment = VerticalAlignment.Top;
+        grid.Children.Add(leftPanel);
+        var right = Ui.Panel(new StackPanel(), new Thickness(18));
+        right.VerticalAlignment = VerticalAlignment.Top;
+        Grid.SetColumn(right, 1);
+        grid.Children.Add(right);
+        editorHost = right;
+        ShowEditor();
+        return Ui.Page("项目", grid);
+    }
+
+    // The list and the editor of the 项目 page that shows now.
+    ListView? itemList;
+    Border? editorHost;
+
+    static StackPanel ItemRow(JsonNode? item)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Padding = new Thickness(0, 4, 0, 4) };
+        row.Children.Add(new Border { Width = 28, Height = 28, Child = ItemIcon(item, 24) });
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        text.Children.Add(new TextBlock { Text = ItemName(item), TextTrimming = TextTrimming.CharacterEllipsis });
+        var sub = IsWidget(item) ? "小组件" : "应用" + (ConfigStore.Bool(item, "admin", false) ? " · 管理员" : "");
+        text.Children.Add(new TextBlock { Text = sub, FontSize = 12, Foreground = Ui.Res("TextFillColorSecondaryBrush") });
+        row.Children.Add(text);
+        return row;
+    }
+
+    // Shows the item again in its list row, after a change of its fields.
+    void UpdateRow(JsonObject item)
+    {
+        var items = store.Items;
+        for (int i = 0; itemList != null && i < items.Count && i < itemList.Items.Count; i++)
+        {
+            if (ReferenceEquals(items[i], item) && itemList.Items[i] is ListViewItem lvi)
+            {
+                lvi.Content = ItemRow(item);
+            }
+        }
+    }
+
+    void ShowEditor()
+    {
+        if (editorHost == null)
+        {
+            return;
+        }
+        var items = store.Items;
         var editor = new StackPanel { Spacing = 14 };
-        if (selected < 0)
+        if (selected < 0 || selected >= items.Count)
         {
             editor.Children.Add(new TextBlock { Text = "没有项目", Foreground = Ui.Res("TextFillColorSecondaryBrush") });
         }
@@ -173,18 +241,18 @@ public sealed class Pages
         {
             AppEditor(editor, items[selected]!.AsObject());
         }
+        editorHost.Child = editor;
+    }
 
-        var grid = new Grid { ColumnSpacing = 16 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var leftPanel = Ui.Panel(left, new Thickness(0));
-        leftPanel.VerticalAlignment = VerticalAlignment.Top;
-        grid.Children.Add(leftPanel);
-        var right = Ui.Panel(editor, new Thickness(18));
-        right.VerticalAlignment = VerticalAlignment.Top;
-        Grid.SetColumn(right, 1);
-        grid.Children.Add(right);
-        return Ui.Page("项目", grid);
+    // Selects a list row without a second editor update.
+    void SelectRow(int index)
+    {
+        selected = index;
+        if (itemList != null)
+        {
+            itemList.SelectedIndex = index;
+        }
+        ShowEditor();
     }
 
     void SetField(JsonObject item, string name, JsonNode? value) => store.Change(_ => item[name] = value);
@@ -196,7 +264,7 @@ public sealed class Pages
 
         var icon = new Border { Width = 56, Height = 56, HorizontalAlignment = HorizontalAlignment.Left, Child = ItemIcon(item, 56) };
         editor.Children.Add(icon);
-        editor.Children.Add(Ui.Field("名称", Ui.Text(ConfigStore.Str(item, "name"), v => SetField(item, "name", v), label: "名称")));
+        editor.Children.Add(Ui.Field("名称", Ui.Text(ConfigStore.Str(item, "name"), v => { SetField(item, "name", v); UpdateRow(item); }, label: "名称")));
 
         var target = Ui.Text(path, v => SetField(item, "path", v), mono: true, label: "目标");
         target.IsReadOnly = store_;
@@ -226,7 +294,7 @@ public sealed class Pages
             [("default", $"默认（{global}）"), ("slice", "图标局部"), ("glow", "主题色光晕")],
             ConfigStore.Str(item, "style", "default"), v => SetField(item, "style", v), "收起样式")));
 
-        var admin = Ui.Toggle(ConfigStore.Bool(item, "admin", false), v => { SetField(item, "admin", v); Rebuild("items"); }, "总是以管理员身份运行");
+        var admin = Ui.Toggle(ConfigStore.Bool(item, "admin", false), v => { SetField(item, "admin", v); UpdateRow(item); }, "总是以管理员身份运行");
         admin.IsEnabled = !store_;
         editor.Children.Add(Ui.Card("总是以管理员身份运行", admin));
     }
@@ -247,11 +315,12 @@ public sealed class Pages
                     item["interval"] ??= 60;
                 }
             });
-            Rebuild("items");
+            UpdateRow(item);
+            ShowEditor();
         })));
         if (source == "command")
         {
-            editor.Children.Add(Ui.Field("名称", Ui.Text(ConfigStore.Str(item, "name"), v => SetField(item, "name", v), label: "名称")));
+            editor.Children.Add(Ui.Field("名称", Ui.Text(ConfigStore.Str(item, "name"), v => { SetField(item, "name", v); UpdateRow(item); }, label: "名称")));
             editor.Children.Add(Ui.Field("命令", Ui.Text(ConfigStore.Str(item, "command"), v => SetField(item, "command", v), mono: true, label: "命令")));
             var interval = (int)ConfigStore.Num(item, "interval", 60);
             var options = new List<(string, string)> { ("1", "1 秒"), ("5", "5 秒"), ("30", "30 秒"), ("60", "60 秒") };
@@ -279,8 +348,13 @@ public sealed class Pages
             items.RemoveAt(selected);
             items.Insert(j, node);
         });
-        selected = j;
-        Rebuild("items");
+        if (itemList != null)
+        {
+            var row = itemList.Items[selected];
+            itemList.Items.RemoveAt(selected);
+            itemList.Items.Insert(j, row);
+        }
+        SelectRow(j);
     }
 
     void DeleteItem()
@@ -291,7 +365,8 @@ public sealed class Pages
             return;
         }
         store.Change(_ => items.RemoveAt(selected));
-        Rebuild("items");
+        itemList?.Items.RemoveAt(selected);
+        SelectRow(items.Count == 0 ? -1 : Math.Min(selected, items.Count - 1));
     }
 
     void InsertItem(JsonObject item)
@@ -299,8 +374,8 @@ public sealed class Pages
         var items = store.Items;
         int at = selected < 0 ? items.Count : selected + 1;
         store.Change(_ => items.Insert(at, item));
-        selected = at;
-        Rebuild("items");
+        itemList?.Items.Insert(at, new ListViewItem { Content = ItemRow(item) });
+        SelectRow(at);
     }
 
     void AddWidget()
@@ -410,7 +485,8 @@ public sealed class Pages
             item["args"] = "";
             item["workingDir"] = "";
         });
-        Rebuild("items");
+        UpdateRow(item);
+        ShowEditor();
     }
 
     async Task Browse(JsonObject item)
@@ -432,7 +508,8 @@ public sealed class Pages
             item["args"] = "";
             item["workingDir"] = "";
         });
-        Rebuild("items");
+        UpdateRow(item);
+        ShowEditor();
     }
 
     // ------------------------------------------------------------ 小组件

@@ -145,13 +145,26 @@ namespace dm
         }
     }
 
-    std::filesystem::path Config::FilePath()
+    std::filesystem::path Config::UserPath()
     {
         PWSTR raw = nullptr;
         winrt::check_hresult(SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_CREATE, nullptr, &raw));
         std::filesystem::path p(raw);
         CoTaskMemFree(raw);
         return p / L"DashMaid" / L"config.json";
+    }
+
+    std::filesystem::path Config::AppPath()
+    {
+        wchar_t self[MAX_PATH];
+        const DWORD n = GetModuleFileNameW(nullptr, self, MAX_PATH);
+        return std::filesystem::path(std::wstring(self, n)).parent_path() / L"config.json";
+    }
+
+    std::filesystem::path Config::FilePath()
+    {
+        auto app = AppPath();
+        return FileExists(app.wstring()) ? app : UserPath();
     }
 
     Config Config::Defaults()

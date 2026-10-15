@@ -24,7 +24,7 @@ An HTML prototype shows the interaction and the layout. The prototype is publish
 - Toolbar process (always running): C++20, Win32, and Windows.UI.Composition through C++/WinRT. Draw text and icons with Direct2D and DirectWrite into Composition drawing surfaces.
 - Animation: the toolbar process calculates the springs on the CPU and writes the values to the Composition visuals once per compositor frame (`DCompositionWaitForCompositorClock`). Hit tests use the same values, so the item under the pointer is always the item that the user sees. Do not replace this with Composition spring animations.
 - Settings window (separate process, starts on demand): C# on .NET 10 with WinUI 3. Use the Windows App SDK unpackaged (`WindowsPackageType` = `None`) and self-contained (`WindowsAppSDKSelfContained` = `true`). This deployment needs no MSIX package, no Store, and no separate runtime installer. The process exits when the window closes.
-- Shared configuration: `%APPDATA%\DashMaid\config.json`. The toolbar process watches this file for changes.
+- Shared configuration: `config.json`, next to `DashMaid.exe` if the file exists there, else in `%APPDATA%\DashMaid`. Both processes use this rule. The toolbar process watches both folders for changes.
 - Resource use: balance code complexity, CPU and GPU use, and memory use. Memory has a soft target of 30 MB working set for the toolbar process. The target is not a hard requirement.
 - Do not use memory optimizations that make the app slower or use more CPU or GPU time. Examples: `EmptyWorkingSet` or other working-set trims, releasing a resource and creating it again when it is necessary, decoding again instead of keeping a cache, and software rendering (WARP) instead of the GPU.
 - Do not use Rust. Do not use web technology (Electron, WebView2 UI, Tauri, or similar).
@@ -90,7 +90,7 @@ The script builds `DashMaid.exe` in the Release configuration, publishes the set
 
 ## Configuration file
 
-`%APPDATA%\DashMaid\config.json` (UTF-8). The toolbar writes the defaults when the file does not exist. Fields:
+`config.json` (UTF-8). If `config.json` exists next to `DashMaid.exe`, the app uses that file. Else it uses `%APPDATA%\DashMaid\config.json`. The 常规 page of the settings window moves the file between the two folders (配置文件位置). It writes the new file before it deletes the old file, so that the toolbar always finds a file. If the folder of `DashMaid.exe` cannot be written, the file stays where it is. The toolbar writes the defaults to `%APPDATA%\DashMaid` when no file exists. Fields:
 
 - `position`: `mode` (`float`, `dock`, `center`, `cursor`), `x` (toolbar center, screen pixels), `y` (toolbar top, screen pixels), `dockStyle` (`float`: a gap above the toolbar, or `flush`: no gap and square top corners), `appBar` (`true` or `false`: in the `dock` mode, keep maximized windows below the toolbar), `monitor` (the `dock` mode: the device path of the monitor, for example `\\?\DISPLAY#...`. Empty: the primary monitor. If the monitor is not connected, the toolbar uses the primary monitor).
 - `theme`: `dark` or `light`. `material`: `solid` (default) or `acrylic`. `collapsedStyle`: `slice` or `glow`.

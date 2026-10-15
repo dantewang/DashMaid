@@ -31,6 +31,10 @@ public sealed class MainWindow : Window
 
         store = new ConfigStore(DispatcherQueue);
         pages = new Pages(store, this);
+        prebuildTimer = DispatcherQueue.CreateTimer();
+        prebuildTimer.Interval = TimeSpan.FromSeconds(1);
+        prebuildTimer.IsRepeating = false;
+        prebuildTimer.Tick += (_, _) => Prebuild();
 
         var titleBar = new StackPanel
         {
@@ -77,14 +81,35 @@ public sealed class MainWindow : Window
         Content = root;
         SetTitleBar(titleBar);
 
-        store.Reloaded += () => Show(current);
-        pages.Navigate = Select;
+        store.Reloaded += () =>
+        {
+            cache.Clear();
+            Show(current);
+            Prebuild();
+        };
+        // A change can show on other pages, for example the default collapsed
+        // style in the item editor. Those pages are built again later.
+        store.Changed += () =>
+        {
+            foreach (var tag in cache.Keys.Where(t => t != current).ToList())
+            {
+                cache.Remove(tag);
+            }
+            prebuildTimer.Stop();
+            prebuildTimer.Start();
+        };
+        pages.Navigate = tag =>
+        {
+            cache.Remove(tag);
+            Select(tag);
+        };
         var args = Environment.GetCommandLineArgs();
         var page = Array.IndexOf(args, "--page") is var i && i >= 0 && i + 1 < args.Length ? args[i + 1] : "items";
         Select(Array.Exists(Nav, n => n.tag == page) ? page : "items");
 
         var dpi = GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)) / 96.0;
         AppWindow.Resize(new Windows.Graphics.SizeInt32((int)(1080 * dpi), (int)(740 * dpi)));
+        Activated += (_, _) => Prebuild();
         Closed += (_, _) => store.Dispose();
     }
 
@@ -104,10 +129,44 @@ public sealed class MainWindow : Window
         }
     }
 
+    // Built pages, so that a page shows at once when the user selects it again.
+    readonly Dictionary<string, UIElement> cache = [];
+    bool prebuilding;
+    readonly Microsoft.UI.Dispatching.DispatcherQueueTimer prebuildTimer;
+
     void Show(string tag)
     {
         current = tag;
-        nav.Content = pages.Build(tag);
+        if (!cache.TryGetValue(tag, out var page))
+        {
+            page = pages.Build(tag);
+            cache[tag] = page;
+        }
+        nav.Content = page;
+    }
+
+    // Builds the other pages when the window is idle, one page at a time.
+    void Prebuild()
+    {
+        if (prebuilding)
+        {
+            return;
+        }
+        var tag = Array.Find(Nav, n => n.tag != current && !cache.ContainsKey(n.tag)).tag;
+        if (tag == null)
+        {
+            return;
+        }
+        prebuilding = true;
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            prebuilding = false;
+            if (tag != current && !cache.ContainsKey(tag))
+            {
+                cache[tag] = pages.Build(tag);
+            }
+            Prebuild();
+        });
     }
 
     [DllImport("user32.dll")]

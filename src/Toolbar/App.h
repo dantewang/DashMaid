@@ -86,7 +86,8 @@ namespace dm
         std::string configText_;
         bool configBroken_ = false;  // The file is not valid. Do not overwrite it.
         winrt::com_ptr<IWICImagingFactory> wic_;
-        HANDLE configWatch_ = INVALID_HANDLE_VALUE;
+        // Change notifications for the two folders that can hold config.json.
+        std::vector<HANDLE> configWatch_;
         UINT taskbarCreated_ = 0;
         bool appBar_ = false;  // Registered as an AppBar at the top of the screen.
         RECT appBarRect_{};    // The screen area that the AppBar keeps, physical pixels.

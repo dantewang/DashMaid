@@ -103,8 +103,15 @@ namespace dm
         config_ = loaded ? std::move(*loaded) : Config::Defaults();
         ApplyConfig();
 
-        const auto dir = Config::FilePath().parent_path();
-        configWatch_ = FindFirstChangeNotificationW(dir.c_str(), FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME);
+        for (const auto& file : { Config::UserPath(), Config::AppPath() })
+        {
+            const HANDLE h = FindFirstChangeNotificationW(file.parent_path().c_str(), FALSE,
+                                                          FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME);
+            if (h != INVALID_HANDLE_VALUE)
+            {
+                configWatch_.push_back(h);
+            }
+        }
 
         taskbarCreated_ = RegisterWindowMessageW(L"TaskbarCreated");
         AddTrayIcon();
@@ -123,9 +130,9 @@ namespace dm
                 if (msg.message == WM_QUIT)
                 {
                     RemoveTrayIcon();
-                    if (configWatch_ != INVALID_HANDLE_VALUE)
+                    for (HANDLE h : configWatch_)
                     {
-                        FindCloseChangeNotification(configWatch_);
+                        FindCloseChangeNotification(h);
                     }
                     return static_cast<int>(msg.wParam);
                 }
@@ -143,12 +150,12 @@ namespace dm
                 continue;
             }
 
-            const bool watching = configWatch_ != INVALID_HANDLE_VALUE;
-            const DWORD r = MsgWaitForMultipleObjectsEx(watching ? 1 : 0, watching ? &configWatch_ : nullptr, INFINITE,
+            const DWORD count = static_cast<DWORD>(configWatch_.size());
+            const DWORD r = MsgWaitForMultipleObjectsEx(count, count ? configWatch_.data() : nullptr, INFINITE,
                                                        QS_ALLINPUT, MWMO_INPUTAVAILABLE);
-            if (watching && r == WAIT_OBJECT_0)
+            if (r < WAIT_OBJECT_0 + count)
             {
-                FindNextChangeNotification(configWatch_);
+                FindNextChangeNotification(configWatch_[r - WAIT_OBJECT_0]);
                 OnConfigFileChanged();
             }
         }

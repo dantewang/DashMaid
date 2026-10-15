@@ -53,7 +53,11 @@ namespace dm
         std::wstring toggleHotkey = L"Alt+`";     // Shows and hides the toolbar in the center and cursor modes.
         std::vector<Item> items;
 
+        // The file is next to DashMaid.exe if it exists there (AppPath), else
+        // in %APPDATA%\DashMaid (UserPath). The settings window moves it.
         static std::filesystem::path FilePath();
+        static std::filesystem::path UserPath();
+        static std::filesystem::path AppPath();
 
         // Reads the file. If the file does not exist, writes the defaults.
         // Returns the file text in "text" (UTF-8). Returns nothing if the file

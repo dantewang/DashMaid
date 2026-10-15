@@ -5,14 +5,23 @@ using Microsoft.UI.Dispatching;
 
 namespace DashMaid.Settings;
 
-// Reads and writes %APPDATA%\DashMaid\config.json. The toolbar process
-// watches the same file. Changes go to the file after a short delay, so
-// that typing in a text box does not write the file for each key.
+// Reads and writes config.json. The file is next to DashMaid.exe if it
+// exists there, else in %APPDATA%\DashMaid. The toolbar process uses the
+// same rule and watches both folders. Changes go to the file after a short
+// delay, so that typing in a text box does not write the file for each key.
 // Fields that this window does not know stay in the file.
 public sealed class ConfigStore : IDisposable
 {
-    public static string FilePath { get; } =
+    public static string UserPath { get; } =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DashMaid", "config.json");
+
+    // The settings window is in the "Settings" folder next to DashMaid.exe.
+    public static string AppPath { get; } =
+        Path.Combine(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory))!, "config.json");
+
+    public static bool InAppFolder => File.Exists(AppPath);
+
+    public static string FilePath => InAppFolder ? AppPath : UserPath;
 
     static readonly JsonSerializerOptions WriteOptions = new()
     {
@@ -22,7 +31,7 @@ public sealed class ConfigStore : IDisposable
 
     readonly DispatcherQueueTimer flushTimer;
     readonly DispatcherQueueTimer reloadTimer;
-    readonly FileSystemWatcher? watcher;
+    readonly List<FileSystemWatcher> watchers = [];
     string lastText = "";
     bool pending;
 
@@ -33,6 +42,9 @@ public sealed class ConfigStore : IDisposable
 
     // Another program changed the file. The UI must show the new values.
     public event Action? Reloaded;
+
+    // This window changed a value.
+    public event Action? Changed;
 
     public ConfigStore(DispatcherQueue queue)
     {
@@ -47,19 +59,54 @@ public sealed class ConfigStore : IDisposable
 
         Load();
 
-        var dir = Path.GetDirectoryName(FilePath)!;
-        if (Directory.Exists(dir))
+        Directory.CreateDirectory(Path.GetDirectoryName(UserPath)!);
+        foreach (var file in new[] { UserPath, AppPath })
         {
-            watcher = new FileSystemWatcher(dir, Path.GetFileName(FilePath))
+            var watcher = new FileSystemWatcher(Path.GetDirectoryName(file)!, Path.GetFileName(file))
             {
                 NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
             };
             FileSystemEventHandler changed = (_, _) => queue.TryEnqueue(() => reloadTimer.Start());
             watcher.Changed += changed;
             watcher.Created += changed;
+            watcher.Deleted += changed;
             watcher.Renamed += (_, _) => queue.TryEnqueue(() => reloadTimer.Start());
             watcher.EnableRaisingEvents = true;
+            watchers.Add(watcher);
         }
+    }
+
+    // Moves the file next to DashMaid.exe (inAppFolder) or to %APPDATA%.
+    // The new file is written before the old file is deleted, so that the
+    // toolbar always finds a file. Returns false if the folder cannot be written.
+    public bool MoveFile(bool inAppFolder)
+    {
+        if (!Valid || inAppFolder == InAppFolder)
+        {
+            return true;
+        }
+        Flush();
+        var from = FilePath;
+        var to = inAppFolder ? AppPath : UserPath;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(to)!);
+            var temp = to + ".tmp";
+            File.WriteAllText(temp, Root.ToJsonString(WriteOptions), new System.Text.UTF8Encoding(false));
+            File.Move(temp, to, overwrite: true);
+            File.Delete(from);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            try { File.Delete(to + ".tmp"); } catch (Exception) { }
+            if (inAppFolder && File.Exists(from))
+            {
+                try { File.Delete(to); } catch (Exception) { }
+            }
+            return false;
+        }
+        lastText = Root.ToJsonString(WriteOptions);
+        return true;
     }
 
     void Load()
@@ -131,6 +178,7 @@ public sealed class ConfigStore : IDisposable
         }
         change(Root);
         pending = true;
+        Changed?.Invoke();
         flushTimer.Stop();
         flushTimer.Start();
     }
@@ -154,7 +202,10 @@ public sealed class ConfigStore : IDisposable
     public void Dispose()
     {
         Flush();
-        watcher?.Dispose();
+        foreach (var w in watchers)
+        {
+            w.Dispose();
+        }
     }
 
     // ---- Typed access ----
