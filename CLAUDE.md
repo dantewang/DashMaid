@@ -78,7 +78,7 @@ The output is `build\src\Toolbar\Debug\DashMaid.exe`. The build also builds the 
 - `position`: `mode` (`float`, `dock`, `center`, `cursor`), `x` (toolbar center, screen pixels), `y` (toolbar top, screen pixels), `dockStyle` (`float`: a gap above the toolbar, or `flush`: no gap and square top corners), `appBar` (`true` or `false`: in the `dock` mode, keep maximized windows below the toolbar).
 - `theme`: `dark` or `light`. `material`: `solid` (default) or `acrylic`. `collapsedStyle`: `slice` or `glow`.
 - `hideFullscreen`: `true` (default) or `false`. In the `float` and `dock` modes, hide the toolbar while a full-screen app runs on its monitor. The toolbar registers as an AppBar for the shell notification. This AppBar keeps no screen area.
-- `autostart`: `true` or `false` (default). The toolbar writes or removes the `DashMaid` value in `HKCUSoftwareMicrosoftWindowsCurrentVersionRun`.
+- `autostart`: `true` or `false` (default). The toolbar writes or removes the `DashMaid` value in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 - `widgetDisplay`: `text` (widgets always show their text) or `collapse` (widgets collapse like app items).
 - `spring`: `stiffness`, `damping`.
 - `hotkeys`: `run` (default `Ctrl+Alt+R`) and `toggle` (default ``Alt+` ``, registered only in the `center` and `cursor` modes). An empty string disables a hotkey.
