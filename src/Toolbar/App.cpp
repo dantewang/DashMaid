@@ -168,6 +168,7 @@ namespace dm
         }
         UpdateAppBar();
         PlaceWindow();
+        SyncAutostart();
         RegisterHotkeys();
         UpdateVisibility();
         if (runOpen_)
@@ -246,7 +247,7 @@ namespace dm
             GetMonitorInfoW(mon, &mi);
             x = (mi.rcMonitor.left + mi.rcMonitor.right) / 2 - w / 2;
             // Another AppBar can already use the top of the screen.
-            const int top = appBar_ ? appBarRect_.top : mi.rcMonitor.top;
+            const int top = appBarSpace_ ? appBarRect_.top : mi.rcMonitor.top;
             y = top + (config_.dockStyle == DockStyle::Flush ? 0 : static_cast<int>(std::lround(DockTopOffset * scale_)));
         }
         else if (HiddenMode())
@@ -261,14 +262,22 @@ namespace dm
 
     // Screen top mode: an AppBar keeps the area of the toolbar, so that
     // maximized windows stay below it.
+    // The toolbar is an AppBar for two reasons. In the screen top mode, the
+    // AppBar keeps the area of the toolbar, so that maximized windows stay
+    // below it. In all modes, the shell tells an AppBar when a full-screen
+    // app opens or closes. An AppBar that never sets its position keeps no area.
     void App::UpdateAppBar()
     {
         scene_.SetFlushTop(config_.mode == PositionMode::Dock && config_.dockStyle == DockStyle::Flush);
-        const bool wanted = config_.mode == PositionMode::Dock && config_.appBar;
-        if (!wanted)
+        const bool space = config_.mode == PositionMode::Dock && config_.appBar;
+        if (!space && !config_.hideFullscreen)
         {
             RemoveAppBar();
             return;
+        }
+        if (appBar_ && appBarSpace_ && !space)
+        {
+            RemoveAppBar();  // Give the area back.
         }
         if (!appBar_)
         {
@@ -281,12 +290,13 @@ namespace dm
                 return;
             }
         }
+        appBarSpace_ = space;
         SetAppBarPos();
     }
 
     void App::SetAppBarPos()
     {
-        if (!appBar_)
+        if (!appBar_ || !appBarSpace_)
         {
             return;
         }
@@ -318,6 +328,59 @@ namespace dm
         abd.hWnd = hwnd_;
         SHAppBarMessage(ABM_REMOVE, &abd);
         appBar_ = false;
+        appBarSpace_ = false;
+        if (fullscreen_)
+        {
+            fullscreen_ = false;
+            UpdateVisibility();
+        }
+    }
+
+    // The shell sends this message to all AppBars. Only a full-screen app on
+    // the monitor of the toolbar hides the toolbar.
+    void App::OnFullscreenApp(bool open)
+    {
+        bool here = false;
+        if (open)
+        {
+            RECT rc;
+            GetWindowRect(hwnd_, &rc);
+            const HWND fg = GetForegroundWindow();
+            here = fg && MonitorFromWindow(fg, MONITOR_DEFAULTTONULL) == MonitorFromRect(&rc, MONITOR_DEFAULTTONEAREST);
+        }
+        if (here != fullscreen_)
+        {
+            fullscreen_ = here;
+            UpdateVisibility();
+        }
+    }
+
+    // Start with Windows: a value in the Run key of the current user.
+    void App::SyncAutostart()
+    {
+        HKEY key = nullptr;
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, nullptr, 0,
+                            KEY_QUERY_VALUE | KEY_SET_VALUE, nullptr, &key, nullptr) != ERROR_SUCCESS)
+        {
+            return;
+        }
+        constexpr wchar_t name[] = L"DashMaid";
+        if (config_.autostart)
+        {
+            wchar_t self[MAX_PATH];
+            const DWORD n = GetModuleFileNameW(nullptr, self, MAX_PATH);
+            if (n > 0 && n < MAX_PATH)
+            {
+                const std::wstring value = L"\"" + std::wstring(self, n) + L"\"";
+                RegSetValueExW(key, name, 0, REG_SZ, reinterpret_cast<const BYTE*>(value.c_str()),
+                               static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
+            }
+        }
+        else
+        {
+            RegDeleteValueW(key, name);
+        }
+        RegCloseKey(key);
     }
 
     void App::MoveWindowToAnchor()
@@ -605,6 +668,12 @@ namespace dm
         {
             Summon();
         }
+        else if (!HiddenMode() && !IsWindowVisible(hwnd_))
+        {
+            // A full-screen app hid the toolbar. The run hotkey shows it.
+            scene_.SnapVisible(true);
+            ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+        }
         runOpen_ = true;
         shrinkPending_ = false;
         hover_ = -1;
@@ -687,8 +756,13 @@ namespace dm
         {
             summoned_ = false;
             hidePending_ = false;
-            scene_.SnapVisible(true);
-            ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+            const bool hide = fullscreen_ && config_.hideFullscreen;
+            if (hide && runOpen_)
+            {
+                CloseRun(false);
+            }
+            scene_.SnapVisible(!hide);
+            ShowWindow(hwnd_, hide ? SW_HIDE : SW_SHOWNOACTIVATE);
         }
         else if (!summoned_)
         {
@@ -1322,10 +1396,14 @@ namespace dm
         switch (msg)
         {
         case AppBarMessage:
-            if (wp == ABN_POSCHANGED)
+            if (wp == ABN_POSCHANGED && appBarSpace_)
             {
                 SetAppBarPos();
                 PlaceWindow();
+            }
+            else if (wp == ABN_FULLSCREENAPP)
+            {
+                OnFullscreenApp(lp != 0);
             }
             return 0;
         case WM_WINDOWPOSCHANGED:

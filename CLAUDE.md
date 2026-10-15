@@ -4,7 +4,7 @@ DashMaid is a Windows desktop launcher. It shows a toolbar that stays above all 
 
 ## Status
 
-The toolbar process works for app items: icons, the hover animation, click to start, the right-click menu, drag to move, and the tray icon. The run box works: the round button or the run hotkey opens it. It searches the toolbar apps and the Start menu apps (name, path, and pinyin initials), and it runs commands like the Windows Run dialog. Widgets work: clock, CPU, memory, network, and command output. The center and cursor modes work: the toggle hotkey shows the toolbar, and Esc, the hotkey, a click outside, or a started app hides it. The screen top mode works, with an optional AppBar. The settings window works: the 设置 menu command opens it. Changes go to `config.json` at once, and the toolbar applies them.
+The toolbar process works for app items: icons, the hover animation, click to start, the right-click menu, drag to move, and the tray icon. The run box works: the round button or the run hotkey opens it. It searches the toolbar apps and the Start menu apps (name, path, and pinyin initials), and it runs commands like the Windows Run dialog. Widgets work: clock, CPU, memory, network, and command output. The center and cursor modes work: the toggle hotkey shows the toolbar, and Esc, the hotkey, a click outside, or a started app hides it. The screen top mode works, with an optional AppBar. The toolbar hides while a full-screen app runs on its monitor, and it can start with Windows. The settings window works: the 设置 menu command opens it. Changes go to `config.json` at once, and the toolbar applies them.
 
 The look of the toolbar must be the same as the prototype: colors, shadows, antialiasing, and timing. `Scene.cpp` uses the CSS values of the prototype directly. To compare, put the app and the prototype on the same plain background and compare the pixels.
 
@@ -77,6 +77,8 @@ The output is `build\src\Toolbar\Debug\DashMaid.exe`. The build also builds the 
 
 - `position`: `mode` (`float`, `dock`, `center`, `cursor`), `x` (toolbar center, screen pixels), `y` (toolbar top, screen pixels), `dockStyle` (`float`: a gap above the toolbar, or `flush`: no gap and square top corners), `appBar` (`true` or `false`: in the `dock` mode, keep maximized windows below the toolbar).
 - `theme`: `dark` or `light`. `material`: `solid` (default) or `acrylic`. `collapsedStyle`: `slice` or `glow`.
+- `hideFullscreen`: `true` (default) or `false`. In the `float` and `dock` modes, hide the toolbar while a full-screen app runs on its monitor. The toolbar registers as an AppBar for the shell notification. This AppBar keeps no screen area.
+- `autostart`: `true` or `false` (default). The toolbar writes or removes the `DashMaid` value in `HKCUSoftwareMicrosoftWindowsCurrentVersionRun`.
 - `widgetDisplay`: `text` (widgets always show their text) or `collapse` (widgets collapse like app items).
 - `spring`: `stiffness`, `damping`.
 - `hotkeys`: `run` (default `Ctrl+Alt+R`) and `toggle` (default ``Alt+` ``, registered only in the `center` and `cursor` modes). An empty string disables a hotkey.

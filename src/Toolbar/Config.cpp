@@ -217,6 +217,8 @@ namespace dm
                 c.y = static_cast<int>(pos.GetNamedNumber(L"y"));
             }
         }
+        c.hideFullscreen = o.GetNamedBoolean(L"hideFullscreen", true);
+        c.autostart = o.GetNamedBoolean(L"autostart", false);
         c.theme = Parse(ThemeNames, o.GetNamedString(L"theme", L"dark"), Theme::Dark);
         c.material = Parse(MaterialNames, o.GetNamedString(L"material", L"solid"), Material::Solid);
         c.collapsedStyle = Parse(StyleNames, o.GetNamedString(L"collapsedStyle", L"slice"), CollapsedStyle::Slice);
@@ -289,6 +291,8 @@ namespace dm
             pos.SetNamedValue(L"y", JsonValue::CreateNumberValue(y));
         }
         o.SetNamedValue(L"position", pos);
+        o.SetNamedValue(L"hideFullscreen", JsonValue::CreateBooleanValue(hideFullscreen));
+        o.SetNamedValue(L"autostart", JsonValue::CreateBooleanValue(autostart));
         o.SetNamedValue(L"theme", JsonValue::CreateStringValue(Name(ThemeNames, theme)));
         o.SetNamedValue(L"material", JsonValue::CreateStringValue(Name(MaterialNames, material)));
         o.SetNamedValue(L"collapsedStyle", JsonValue::CreateStringValue(Name(StyleNames, collapsedStyle)));

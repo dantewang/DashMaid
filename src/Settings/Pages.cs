@@ -64,7 +64,11 @@ public sealed class Pages
             rows.Add(Ui.Card("保留屏幕空间", Ui.Toggle(ConfigStore.Bool(pos, "appBar", true),
                 v => store.Change(r => store.Object("position")["appBar"] = v), "保留屏幕空间")));
         }
-        return Ui.Page("常规", Ui.Group(null, [.. rows]));
+        rows.Add(Ui.Card("全屏程序运行时隐藏", Ui.Toggle(ConfigStore.Bool(store.Root, "hideFullscreen", true),
+            v => store.Change(r => r["hideFullscreen"] = v), "全屏程序运行时隐藏")));
+        var startup = Ui.Group(null, Ui.Card("开机时启动", Ui.Toggle(ConfigStore.Bool(store.Root, "autostart", false),
+            v => store.Change(r => r["autostart"] = v), "开机时启动")));
+        return Ui.Page("常规", Ui.Group(null, [.. rows]), startup);
     }
 
     // ------------------------------------------------------------ 项目

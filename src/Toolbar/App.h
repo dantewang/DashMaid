@@ -51,6 +51,8 @@ namespace dm
         void UpdateAppBar();
         void SetAppBarPos();
         void RemoveAppBar();
+        void OnFullscreenApp(bool open);
+        void SyncAutostart();
         void RegisterHotkeys();
         void BuildCandidates();
         void UpdateResults();
@@ -88,6 +90,8 @@ namespace dm
         UINT taskbarCreated_ = 0;
         bool appBar_ = false;  // Registered as an AppBar at the top of the screen.
         RECT appBarRect_{};    // The screen area that the AppBar keeps, physical pixels.
+        bool appBarSpace_ = false;  // The AppBar keeps an area of the screen.
+        bool fullscreen_ = false;   // A full-screen app runs on the monitor of the toolbar.
 
         float scale_ = 1.f;
         POINT anchor_{};  // Window center X and window top Y, screen pixels.

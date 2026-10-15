@@ -41,6 +41,8 @@ namespace dm
         int y = Unset;  // Screen Y of the toolbar top, in physical pixels.
         DockStyle dockStyle = DockStyle::Float;
         bool appBar = true;  // Screen top: keep maximized windows below the toolbar.
+        bool hideFullscreen = true;  // Hide the floating and screen top toolbar while a full-screen app runs.
+        bool autostart = false;      // Start with Windows (HKCU Run key).
         Theme theme = Theme::Dark;
         Material material = Material::Solid;
         CollapsedStyle collapsedStyle = CollapsedStyle::Slice;
