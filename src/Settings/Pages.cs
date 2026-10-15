@@ -534,7 +534,7 @@ public sealed class Pages
                 ? new TextBlock { Text = "已添加", Foreground = Ui.Res("TextFillColorSecondaryBrush") }
                 : Ui.Button("添加", () =>
                 {
-                    store.Change(_ => store.Items.Add(NewWidget(value)));
+                    store.Change(_ => store.Items.Add((JsonNode)NewWidget(value)));
                     Rebuild("widgets");
                 });
             builtIn.Add(Ui.Card(label, control));
@@ -554,7 +554,7 @@ public sealed class Pages
         }
         commands.Add(Ui.Card("命令", Ui.Button("添加", () =>
         {
-            store.Change(_ => store.Items.Add(NewWidget("command")));
+            store.Change(_ => store.Items.Add((JsonNode)NewWidget("command")));
             selected = store.Items.Count - 1;
             Navigate?.Invoke("items");
         })));

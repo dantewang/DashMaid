@@ -23,7 +23,7 @@ An HTML prototype shows the interaction and the layout. The prototype is publish
 
 - Toolbar process (always running): C++20, Win32, and Windows.UI.Composition through C++/WinRT. Draw text and icons with Direct2D and DirectWrite into Composition drawing surfaces.
 - Animation: the toolbar process calculates the springs on the CPU and writes the values to the Composition visuals once per compositor frame (`DCompositionWaitForCompositorClock`). Hit tests use the same values, so the item under the pointer is always the item that the user sees. Do not replace this with Composition spring animations.
-- Settings window (separate process, starts on demand): C# on .NET 10 with WinUI 3. Use the Windows App SDK unpackaged (`WindowsPackageType` = `None`) and self-contained (`WindowsAppSDKSelfContained` = `true`). This deployment needs no MSIX package, no Store, and no separate runtime installer. The process exits when the window closes.
+- Settings window (separate process, starts on demand): C# on .NET 10 with WinUI 3. Use the Windows App SDK unpackaged (`WindowsPackageType` = `None`) and self-contained (`WindowsAppSDKSelfContained` = `true`), compiled with Native AOT for the release. This deployment needs no MSIX package, no Store, and no separate runtime installer. The process exits when the window closes.
 - Shared configuration: `config.json`, next to `DashMaid.exe` if the file exists there, else in `%APPDATA%\DashMaid`. Both processes use this rule. The toolbar process watches both folders for changes.
 - Resource use: balance code complexity, CPU and GPU use, and memory use. Memory has a soft target of 30 MB working set for the toolbar process. The target is not a hard requirement.
 - Do not use memory optimizations that make the app slower or use more CPU or GPU time. Examples: `EmptyWorkingSet` or other working-set trims, releasing a resource and creating it again when it is necessary, decoding again instead of keeping a cache, and software rendering (WARP) instead of the GPU.
@@ -82,11 +82,11 @@ To make the release zip, run this command from the repository root:
 pwsh -NoProfile -File tools\Package.ps1
 ```
 
-The script builds `DashMaid.exe` in the Release configuration, publishes the settings window with `dotnet publish`, and writes `build\DashMaid-<version>-win-x64.zip`. The version comes from `project()` in `CMakeLists.txt`. The zip has one folder, `DashMaid`, with `DashMaid.exe` and the `Settings` folder. The script removes the files that the app does not use at run time: `.pdb` and `.winmd` files, `createdump.exe`, `RestartAgent.exe`, and the WinUI language folders other than `zh-CN`, `zh-TW`, and `en-us`. The target computer needs no other installation: `DashMaid.exe` links the C++ runtime statically, and the settings window is self-contained.
+The script builds `DashMaid.exe` in the Release configuration, publishes the settings window with `dotnet publish`, and writes `build\DashMaid-<version>-win-x64.zip`. The version comes from `project()` in `CMakeLists.txt`. The zip has one folder, `DashMaid`, with `DashMaid.exe` and the `Settings` folder. The script removes the files that the app does not use at run time: `.pdb` and `.winmd` files, `createdump.exe`, `RestartAgent.exe`, and the WinUI language folders other than `zh-CN`, `zh-TW`, and `en-us`. The target computer needs no other installation: `DashMaid.exe` links the C++ runtime statically, and the settings window is self-contained and compiled with Native AOT (no .NET runtime files).
 
 - The settings window references `Microsoft.WindowsAppSDK.WinUI`, not `Microsoft.WindowsAppSDK`. The second package adds the AI, ML, Search, and Widgets components, which the app does not use.
 - `EnableMsixTooling` must stay `true` in the settings project. Without it, `dotnet publish` does not copy the `.pri` file, and the published settings window does not start.
-- Do not trim the settings window (`PublishTrimmed`). Its COM interop and the Windows SDK projection are not safe for trimming.
+- `dotnet publish` compiles the settings window with Native AOT (`PublishAot`). `dotnet build` and the `Settings` CMake target use the JIT. Native AOT needs `vswhere.exe` on `PATH` to find the linker; `Package.ps1` adds it. The code must stay safe for AOT: use `LibraryImport` and `[GeneratedComInterface]` for interop (not `[ComImport]` or `DllImport` with COM objects), mark classes that derive from WinRT types as `partial`, and keep the publish free of trim and AOT warnings.
 
 ## Configuration file
 

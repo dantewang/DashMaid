@@ -5,7 +5,7 @@ using Microsoft.UI.Xaml.Media;
 
 namespace DashMaid.Settings;
 
-public sealed class MainWindow : Window
+public sealed partial class MainWindow : Window
 {
     static readonly (string tag, string label, string glyph)[] Nav =
     [

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Microsoft.UI.Xaml.Media.Imaging;
 
@@ -8,7 +9,7 @@ namespace DashMaid.Settings;
 public sealed record AppEntry(string Name, string Path, string Display);
 
 // Shell functions: the "All apps" list and icons. The rules are the same as in the toolbar process.
-public static class Shell
+public static partial class Shell
 {
     public static bool IsStoreApp(string path) =>
         path.StartsWith(@"shell:AppsFolder\", StringComparison.OrdinalIgnoreCase);
@@ -17,22 +18,24 @@ public static class Shell
     {
         var list = new List<AppEntry>();
         var appsFolder = new Guid("1e87508d-89c2-42f0-8a7e-645a0f50ca58");
-        if (SHGetKnownFolderItem(appsFolder, 0, IntPtr.Zero, typeof(IShellItem).GUID, out var folderObj) != 0)
+        if (SHGetKnownFolderItem(appsFolder, 0, IntPtr.Zero, typeof(IShellItem).GUID, out var folderPtr) != 0)
         {
             return list;
         }
-        var folder = (IShellItem)folderObj;
+        var folder = Wrap<IShellItem>(folderPtr);
         var enumItems = new Guid("94f60519-2850-4924-aa5a-d15e84868039");
-        if (folder.BindToHandler(IntPtr.Zero, enumItems, typeof(IEnumShellItems).GUID, out var enumObj) != 0)
+        if (folder.BindToHandler(IntPtr.Zero, enumItems, typeof(IEnumShellItems).GUID, out var enumPtr) != 0)
         {
+            Release(folder);
             return list;
         }
-        var items = (IEnumShellItems)enumObj;
-        while (items.Next(1, out var item, out var fetched) == 0 && fetched == 1)
+        var items = Wrap<IEnumShellItems>(enumPtr);
+        while (items.Next(1, out var itemPtr, out var fetched) == 0 && fetched == 1)
         {
+            var item = Wrap<IShellItem>(itemPtr);
             var name = DisplayName(item, SIGDN_NORMALDISPLAY);
             var parsing = DisplayName(item, SIGDN_PARENTRELATIVEPARSING);
-            Marshal.ReleaseComObject(item);
+            Release(item);
             if (string.IsNullOrEmpty(name) || string.IsNullOrEmpty(parsing))
             {
                 continue;
@@ -40,6 +43,8 @@ public static class Shell
             var file = ResolveKnownFolder(parsing);
             list.Add(new AppEntry(name, file ?? @"shell:AppsFolder\" + parsing, file ?? parsing));
         }
+        Release(items);
+        Release(folder);
         list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.CurrentCultureIgnoreCase));
         return list;
     }
@@ -88,15 +93,15 @@ public static class Shell
         WriteableBitmap? bitmap = null;
         var expanded = Environment.ExpandEnvironmentVariables(path.Trim().Trim('"'));
         if (expanded.Length > 0 &&
-            SHCreateItemFromParsingName(expanded, IntPtr.Zero, typeof(IShellItemImageFactory).GUID, out var obj) == 0)
+            SHCreateItemFromParsingName(expanded, IntPtr.Zero, typeof(IShellItemImageFactory).GUID, out var ptr) == 0)
         {
-            var factory = (IShellItemImageFactory)obj;
+            var factory = Wrap<IShellItemImageFactory>(ptr);
             if (factory.GetImage(new SIZE { cx = size, cy = size }, SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK, out var hbitmap) == 0)
             {
                 bitmap = ToBitmap(hbitmap);
                 DeleteObject(hbitmap);
             }
-            Marshal.ReleaseComObject(factory);
+            Release(factory);
         }
         icons[key] = bitmap;
         return bitmap;
@@ -157,34 +162,47 @@ public static class Shell
     const int SIIGBF_BIGGERSIZEOK = 0x1;
     const int SIIGBF_ICONONLY = 0x4;
 
-    [ComImport, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    interface IShellItem
+    // COM interfaces with source-generated marshalling, so that Native AOT
+    // can compile them. Interface pointers are IntPtr, and Wrap() makes the
+    // managed object.
+    static readonly StrategyBasedComWrappers comWrappers = new();
+
+    static T Wrap<T>(IntPtr unknown)
     {
-        [PreserveSig] int BindToHandler(IntPtr pbc, [MarshalAs(UnmanagedType.LPStruct)] Guid bhid,
-                                        [MarshalAs(UnmanagedType.LPStruct)] Guid riid, [MarshalAs(UnmanagedType.Interface)] out object ppv);
-        [PreserveSig] int GetParent(out IShellItem ppsi);
+        var o = (T)comWrappers.GetOrCreateObjectForComInstance(unknown, CreateObjectFlags.UniqueInstance);
+        Marshal.Release(unknown);
+        return o;
+    }
+
+    static void Release(object o) => ((ComObject)o).FinalRelease();
+
+    [GeneratedComInterface, Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe")]
+    internal partial interface IShellItem
+    {
+        [PreserveSig] int BindToHandler(IntPtr pbc, in Guid bhid, in Guid riid, out IntPtr ppv);
+        [PreserveSig] int GetParent(out IntPtr ppsi);
         [PreserveSig] int GetDisplayName(uint sigdnName, out IntPtr ppszName);
         [PreserveSig] int GetAttributes(uint sfgaoMask, out uint psfgaoAttribs);
-        [PreserveSig] int Compare(IShellItem psi, uint hint, out int piOrder);
+        [PreserveSig] int Compare(IntPtr psi, uint hint, out int piOrder);
     }
 
-    [ComImport, Guid("70629033-e363-4a28-a567-0db78006e6d7"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    interface IEnumShellItems
+    [GeneratedComInterface, Guid("70629033-e363-4a28-a567-0db78006e6d7")]
+    internal partial interface IEnumShellItems
     {
-        [PreserveSig] int Next(uint celt, out IShellItem rgelt, out uint pceltFetched);
+        [PreserveSig] int Next(uint celt, out IntPtr rgelt, out uint pceltFetched);
         [PreserveSig] int Skip(uint celt);
         [PreserveSig] int Reset();
-        [PreserveSig] int Clone(out IEnumShellItems ppenum);
+        [PreserveSig] int Clone(out IntPtr ppenum);
     }
 
-    [ComImport, Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    interface IShellItemImageFactory
+    [GeneratedComInterface, Guid("bcc18b79-ba16-442f-80c4-8a59c30c463b")]
+    internal partial interface IShellItemImageFactory
     {
         [PreserveSig] int GetImage(SIZE size, int flags, out IntPtr phbm);
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    struct SIZE { public int cx, cy; }
+    internal struct SIZE { public int cx, cy; }
 
     [StructLayout(LayoutKind.Sequential)]
     struct BITMAP
@@ -204,29 +222,28 @@ public static class Shell
         public uint biClrUsed, biClrImportant;
     }
 
-    [DllImport("shell32.dll")]
-    static extern int SHGetKnownFolderItem([MarshalAs(UnmanagedType.LPStruct)] Guid rfid, uint flags, IntPtr token,
-                                           [MarshalAs(UnmanagedType.LPStruct)] Guid riid, [MarshalAs(UnmanagedType.Interface)] out object ppv);
+    [LibraryImport("shell32.dll")]
+    private static partial int SHGetKnownFolderItem(in Guid rfid, uint flags, IntPtr token, in Guid riid, out IntPtr ppv);
 
-    [DllImport("shell32.dll")]
-    static extern int SHGetKnownFolderPath([MarshalAs(UnmanagedType.LPStruct)] Guid rfid, uint flags, IntPtr token, out IntPtr path);
+    [LibraryImport("shell32.dll")]
+    private static partial int SHGetKnownFolderPath(in Guid rfid, uint flags, IntPtr token, out IntPtr path);
 
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-    static extern int SHCreateItemFromParsingName(string path, IntPtr pbc, [MarshalAs(UnmanagedType.LPStruct)] Guid riid,
-                                                  [MarshalAs(UnmanagedType.Interface)] out object ppv);
+    [LibraryImport("shell32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    private static partial int SHCreateItemFromParsingName(string path, IntPtr pbc, in Guid riid, out IntPtr ppv);
 
-    [DllImport("gdi32.dll")]
-    static extern int GetObject(IntPtr h, int size, out BITMAP bm);
+    [LibraryImport("gdi32.dll", EntryPoint = "GetObjectW")]
+    private static partial int GetObject(IntPtr h, int size, out BITMAP bm);
 
-    [DllImport("gdi32.dll")]
-    static extern int GetDIBits(IntPtr hdc, IntPtr hbm, uint start, uint lines, byte[] bits, ref BITMAPINFOHEADER info, uint usage);
+    [LibraryImport("gdi32.dll")]
+    private static partial int GetDIBits(IntPtr hdc, IntPtr hbm, uint start, uint lines, [Out] byte[] bits, ref BITMAPINFOHEADER info, uint usage);
 
-    [DllImport("gdi32.dll")]
-    static extern bool DeleteObject(IntPtr h);
+    [LibraryImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool DeleteObject(IntPtr h);
 
-    [DllImport("user32.dll")]
-    static extern IntPtr GetDC(IntPtr hwnd);
+    [LibraryImport("user32.dll")]
+    private static partial IntPtr GetDC(IntPtr hwnd);
 
-    [DllImport("user32.dll")]
-    static extern int ReleaseDC(IntPtr hwnd, IntPtr dc);
+    [LibraryImport("user32.dll")]
+    private static partial int ReleaseDC(IntPtr hwnd, IntPtr dc);
 }

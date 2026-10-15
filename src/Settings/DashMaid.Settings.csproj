@@ -18,6 +18,10 @@
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <!-- Makes "dotnet publish" include the resource index (.pri) with the compiled XAML. Without it, the published app does not start. -->
     <EnableMsixTooling>true</EnableMsixTooling>
+    <!-- "dotnet publish" compiles the window to native code. "dotnet build" (the CMake target) uses the JIT. -->
+    <PublishAot>true</PublishAot>
+    <!-- The source generators of LibraryImport and GeneratedComInterface make unsafe code. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <SelfContained>true</SelfContained>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>../Assets/DashMaid.ico</ApplicationIcon>

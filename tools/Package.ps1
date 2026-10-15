@@ -32,6 +32,8 @@ Copy-Item (Join-Path $build 'src\Toolbar\Release\DashMaid.exe') $stage
 # The settings window. The C++ build environment can set LIB, and the C#
 # compiler warns about its folders.
 Remove-Item Env:LIB -ErrorAction SilentlyContinue
+# Native AOT finds the linker with vswhere.exe, which is not on PATH.
+$env:PATH = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;$env:PATH"
 dotnet publish (Join-Path $root 'src\Settings\DashMaid.Settings.csproj') -c Release --nologo -v:q -o (Join-Path $stage 'Settings')
 Check 'The settings window publish'
 
