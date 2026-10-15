@@ -181,6 +181,12 @@ namespace dm
             return l <= maxL ? d : Mix(d, { 0, 0, 0 }, 1.f - maxL / l);
         }
 
+        // The 1 px outline of collapsed items and of the run button.
+        Color OutlineColor(Theme theme, float alpha)
+        {
+            return theme == Theme::Dark ? ToColor(Rgb{ 255, 255, 255 }, 0.4f * alpha) : ToColor(Rgb{ 0, 0, 0 }, 0.3f * alpha);
+        }
+
         // The box-shadow lists of the prototype.
         const ColorF Black{ 0, 0, 0, 1 };
 
@@ -610,7 +616,7 @@ namespace dm
             iconSize = h * 0.74f;
             iconOpacity = pa * pa;
             highlight = 0.45f * q;  // inset 0 1px 0 rgba(255,255,255,.45q)
-            ring = 0.f;
+            ring = q;
             outer = {
                 { 0, 0, (7 + 10 * g) * k, (1 + 2 * g) * k, Css(glow, (0.65f + 0.35f * g) * q) },
                 { 0, 6 * pa * k, 18 * pa * k, 0, Css(black, 0.32f * pa) },
@@ -625,7 +631,7 @@ namespace dm
             iconOpacity = 1.f;
             brightness = pa >= 1.f ? 1.f : Lerp(0.72f, 1.f, std::max(g, pa));
             highlight = 0.3f * q;  // inset 0 1px 0 rgba(255,255,255,.3q)
-            ring = 0.14f * q;      // inset 0 0 0 1px rgba(255,255,255,.14q)
+            ring = q;
             // The glow shows the item when the icon has the color of the toolbar.
             outer = {
                 { 0, 0, 0, 1, Css(black, 0.55f * q) },
@@ -676,7 +682,7 @@ namespace dm
         v.ringGeom.Offset({ s / 2, s / 2 });
         v.ringGeom.Size({ std::max(0.f, W - s), std::max(0.f, H - s) });
         v.ringGeom.CornerRadius({ std::max(0.f, R - s / 2), std::max(0.f, R - s / 2) });
-        v.ringBrush.Color(ToColor(white, ring));
+        v.ringBrush.Color(OutlineColor(theme_, ring));
 
         const float I = iconSize * s;
         const float3 iconOffset{ (W - I) / 2, (H - I) / 2, 0 };
@@ -748,8 +754,9 @@ namespace dm
             winrt::com_ptr<ID2D1SolidColorBrush> brush;
             dc->CreateSolidColorBrush(D2DColor(ToRgb32(fill)), brush.put());
             dc->FillEllipse(D2D1::Ellipse({ ox, oy }, r, r), brush.get());
-            // The line of the chips: inset 0 0 0 1px.
-            brush->SetColor(D2D1::ColorF(pal.chipLine.R / 255.f, pal.chipLine.G / 255.f, pal.chipLine.B / 255.f, pal.chipLine.A / 255.f));
+            // The outline: inset 0 0 0 1px.
+            const Color line = OutlineColor(theme_, 1.f);
+            brush->SetColor(D2D1::ColorF(line.R / 255.f, line.G / 255.f, line.B / 255.f, line.A / 255.f));
             dc->DrawEllipse(D2D1::Ellipse({ ox, oy }, r - 0.5f / s, r - 0.5f / s), brush.get(), 1.f / s);
 
             brush->SetColor(D2DColor(ToRgb32(glyph)));
@@ -1157,9 +1164,9 @@ namespace dm
                 v.dim = c.CreateSpriteVisual();
                 box.InsertAtTop(v.highlight);
                 box.InsertAtTop(v.cover);
-                box.InsertAtTop(v.ring);
                 box.InsertAtTop(v.icon);
                 box.InsertAtTop(v.dim);
+                box.InsertAtTop(v.ring);  // The outline of a collapsed item: above the icon.
 
                 v.art = c.CreateContainerVisual();
                 for (auto& k : v.casters)
@@ -1634,7 +1641,7 @@ namespace dm
             const float pa = Clamp01(t - 2.f);
             const bool chip = !widgetsCollapse_;
             v.plateBrush.Color(ToColor(chip ? Mix(pal.chip, pal.widgetStops[3], pa) : Stops(pal.widgetStops, t)));
-            v.ringBrush.Color(chip ? pal.chipLine : Color{ 0, 0, 0, 0 });
+            v.ringBrush.Color(chip ? pal.chipLine : OutlineColor(theme_, 1.f - pa));
 
             // The text color changes once, at the middle of the expansion.
             const bool chipInk = chip && pa < 0.5f;
