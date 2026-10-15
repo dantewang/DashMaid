@@ -406,6 +406,9 @@ namespace dm
         p.borderShape.StrokeBrush(p.borderBrush);
         p.border = c.CreateShapeVisual();
         p.border.Shapes().Append(p.borderShape);
+        p.topLine = c.CreateSpriteVisual();
+        p.topLine.Brush(p.borderBrush);
+        p.topLine.IsVisible(false);
         p.shadows[0] = CreateCaster();
         p.shadows[1] = CreateCaster();
 
@@ -413,18 +416,24 @@ namespace dm
         children.InsertAtTop(p.backdrop);
         children.InsertAtTop(p.tint);
         children.InsertAtTop(p.border);  // "inset 0 0 0 1px": above the background, below the children.
+        children.InsertAtTop(p.topLine);
         children.InsertAtTop(p.content);
         return p;
     }
 
-    void Scene::LayoutPanel(Panel& p, float x, float y, float w, float h, const PanelStyle& style)
+    // 'flushTop': the top corners are square (border-radius: 0 0 r r). The
+    // rounded shapes extend above the panel by the radius, so only their
+    // bottom corners show.
+    void Scene::LayoutPanel(Panel& p, float x, float y, float w, float h, const PanelStyle& style, bool flushTop)
     {
         const float s = scale_;
         const float2 size{ w * s, h * s };
         const float r = style.radius * s;
+        const float up = flushTop ? r : 0.f;
         p.root.Offset({ x * s, y * s, 0 });
         p.root.Size(size);
-        p.clip.Size(size);
+        p.clip.Offset({ 0, -up });
+        p.clip.Size({ size.x, size.y + up });
         p.clip.CornerRadius({ r, r });
         p.backdrop.Size(size);
         p.backdrop.IsVisible(material_ == Material::Acrylic);
@@ -433,18 +442,23 @@ namespace dm
         p.content.Size(size);
         p.border.Size(size);
         p.borderShape.StrokeThickness(s);  // 1 CSS px.
-        p.borderGeom.Offset({ s / 2, s / 2 });
-        p.borderGeom.Size({ std::max(0.f, size.x - s), std::max(0.f, size.y - s) });
+        p.borderGeom.Offset({ s / 2, s / 2 - up });
+        p.borderGeom.Size({ std::max(0.f, size.x - s), std::max(0.f, size.y + up - s) });
         p.borderGeom.CornerRadius({ std::max(0.f, r - s / 2), std::max(0.f, r - s / 2) });
         p.borderBrush.Color(style.border);
+        // The top edge of the inset border, between the two side edges.
+        p.topLine.IsVisible(flushTop);
+        p.topLine.Offset({ s, 0, 0 });
+        p.topLine.Size({ std::max(0.f, size.x - 2 * s), s });
 
+        const float extend = flushTop ? style.radius : 0.f;
         const ShadowList& list = style.shadows;
         for (size_t i = 0; i < std::size(p.shadows); ++i)
         {
             p.shadows[i].sprite.IsVisible(i < list.size());
             if (i < list.size())
             {
-                SetCaster(p.shadows[i], x, y, w, h, style.radius, list[i]);
+                SetCaster(p.shadows[i], x, y - extend, w, h + extend, style.radius, list[i]);
             }
         }
     }
@@ -1517,7 +1531,8 @@ namespace dm
         // The toolbar box.
         LayoutPanel(track_, x0, 0, trackW, bh,
                     { material_ == Material::Acrylic ? pal.tintAcrylic : pal.tintSolid, pal.border,
-                      PanelShadows(), Radius });
+                      PanelShadows(), Radius },
+                    flushTop_);
 
         // The orb, with its CSS transitions and the pulse of the run box.
         float pulse = 0.f;

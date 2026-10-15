@@ -41,6 +41,7 @@ namespace dm
         void SetItems(std::vector<SceneItem> items);
         void SetWindowWidth(float dip) { windowWidth_ = dip; }
         void SetWidgetsCollapse(bool collapse) { widgetsCollapse_ = collapse; }
+        void SetFlushTop(bool flush) { flushTop_ = flush; }  // Square top corners, for the screen top.
         // Returns true if the text changed.
         bool SetWidgetText(int index, const std::wstring& brief, const std::wstring& detail);
 
@@ -153,6 +154,7 @@ namespace dm
             winrt::Windows::UI::Composition::CompositionRoundedRectangleGeometry borderGeom{ nullptr };
             winrt::Windows::UI::Composition::CompositionColorBrush borderBrush{ nullptr };
             winrt::Windows::UI::Composition::CompositionSpriteShape borderShape{ nullptr };
+            winrt::Windows::UI::Composition::SpriteVisual topLine{ nullptr };
             Caster shadows[2];
             float saturate = 1.f;
         };
@@ -174,7 +176,7 @@ namespace dm
         // Box and radius in DIPs, in the coordinates of the parent of the caster.
         void SetCaster(Caster& c, float x, float y, float w, float h, float radius, const Shadow& s);
         Panel CreatePanel(float saturate);
-        void LayoutPanel(Panel& p, float x, float y, float w, float h, const PanelStyle& style);
+        void LayoutPanel(Panel& p, float x, float y, float w, float h, const PanelStyle& style, bool flushTop = false);
         winrt::Windows::UI::Composition::CompositionBrush BackdropBrush(float saturate);
         template <class F>
         void Paint(winrt::Windows::UI::Composition::CompositionDrawingSurface& surface, int w, int h, F&& paint);
@@ -205,6 +207,7 @@ namespace dm
         Material material_ = Material::Acrylic;
         CollapsedStyle style_ = CollapsedStyle::Slice;
         bool widgetsCollapse_ = false;
+        bool flushTop_ = false;
         SpringParams spring_;
         int hover_ = -1;
         int pinned_ = -1;

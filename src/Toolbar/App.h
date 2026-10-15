@@ -48,6 +48,9 @@ namespace dm
         void Summon();
         void Dismiss(bool restoreFocus);
         void SummonPosition(int& x, int& y);
+        void UpdateAppBar();
+        void SetAppBarPos();
+        void RemoveAppBar();
         void RegisterHotkeys();
         void BuildCandidates();
         void UpdateResults();
@@ -83,6 +86,8 @@ namespace dm
         winrt::com_ptr<IWICImagingFactory> wic_;
         HANDLE configWatch_ = INVALID_HANDLE_VALUE;
         UINT taskbarCreated_ = 0;
+        bool appBar_ = false;  // Registered as an AppBar at the top of the screen.
+        RECT appBarRect_{};    // The screen area that the AppBar keeps, physical pixels.
 
         float scale_ = 1.f;
         POINT anchor_{};  // Window center X and window top Y, screen pixels.

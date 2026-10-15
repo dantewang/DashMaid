@@ -5,6 +5,7 @@
 namespace dm
 {
     enum class PositionMode { Float, Dock, Center, Cursor };
+    enum class DockStyle { Float, Flush };  // Screen top: a gap above the toolbar, or no gap and square top corners.
     enum class Theme { Dark, Light };
     enum class Material { Acrylic, Solid };
     enum class CollapsedStyle { Slice, Glow };
@@ -37,7 +38,9 @@ namespace dm
 
         PositionMode mode = PositionMode::Float;
         int x = Unset;  // Screen X of the window center, in physical pixels.
-        int y = Unset;  // Screen Y of the window top, in physical pixels.
+        int y = Unset;  // Screen Y of the toolbar top, in physical pixels.
+        DockStyle dockStyle = DockStyle::Float;
+        bool appBar = true;  // Screen top: keep maximized windows below the toolbar.
         Theme theme = Theme::Dark;
         Material material = Material::Solid;
         CollapsedStyle collapsedStyle = CollapsedStyle::Slice;

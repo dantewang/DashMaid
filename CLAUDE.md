@@ -4,7 +4,7 @@ DashMaid is a Windows desktop launcher. It shows a toolbar that stays above all 
 
 ## Status
 
-The toolbar process works for app items: icons, the hover animation, click to start, the right-click menu, drag to move, and the tray icon. The run box works: the round button or the run hotkey opens it. It searches the toolbar apps and the Start menu apps (name, path, and pinyin initials), and it runs commands like the Windows Run dialog. Widgets work: clock, CPU, memory, network, and command output. The center and cursor modes work: the toggle hotkey shows the toolbar, and Esc, the hotkey, a click outside, or a started app hides it. AppBar registration and the settings window do not exist yet. The 设置 menu command opens `config.json` in Notepad until the settings window exists.
+The toolbar process works for app items: icons, the hover animation, click to start, the right-click menu, drag to move, and the tray icon. The run box works: the round button or the run hotkey opens it. It searches the toolbar apps and the Start menu apps (name, path, and pinyin initials), and it runs commands like the Windows Run dialog. Widgets work: clock, CPU, memory, network, and command output. The center and cursor modes work: the toggle hotkey shows the toolbar, and Esc, the hotkey, a click outside, or a started app hides it. The screen top mode works, with an optional AppBar. The settings window does not exist yet. The 设置 menu command opens `config.json` in Notepad until the settings window exists.
 
 The look of the toolbar must be the same as the prototype: colors, shadows, antialiasing, and timing. `Scene.cpp` uses the CSS values of the prototype directly. To compare, put the app and the prototype on the same plain background and compare the pixels.
 
@@ -71,7 +71,7 @@ The output is `build\src\Toolbar\Debug\DashMaid.exe`. Only one instance runs at 
 
 `%APPDATA%\DashMaid\config.json` (UTF-8). The toolbar writes the defaults when the file does not exist. Fields:
 
-- `position`: `mode` (`float`, `dock`, `center`, `cursor`), `x` (window center, screen pixels), `y` (window top, screen pixels).
+- `position`: `mode` (`float`, `dock`, `center`, `cursor`), `x` (toolbar center, screen pixels), `y` (toolbar top, screen pixels), `dockStyle` (`float`: a gap above the toolbar, or `flush`: no gap and square top corners), `appBar` (`true` or `false`: in the `dock` mode, keep maximized windows below the toolbar).
 - `theme`: `dark` or `light`. `material`: `solid` (default) or `acrylic`. `collapsedStyle`: `slice` or `glow`.
 - `widgetDisplay`: `text` (widgets always show their text) or `collapse` (widgets collapse like app items).
 - `spring`: `stiffness`, `damping`.

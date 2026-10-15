@@ -16,6 +16,7 @@ namespace dm
         constexpr UINT TrayMessage = WM_APP + 1;
         constexpr UINT CatalogMessage = WM_APP + 2;
         constexpr UINT WidgetMessage = WM_APP + 3;
+        constexpr UINT AppBarMessage = WM_APP + 4;
         constexpr UINT TrayId = 1;
         constexpr UINT_PTR MenuTimer = 1;
         constexpr UINT_PTR WidgetTimer = 2;
@@ -165,6 +166,7 @@ namespace dm
         {
             anchor_ = { config_.x, config_.y };
         }
+        UpdateAppBar();
         PlaceWindow();
         RegisterHotkeys();
         UpdateVisibility();
@@ -243,7 +245,9 @@ namespace dm
             MONITORINFO mi{ sizeof(mi) };
             GetMonitorInfoW(mon, &mi);
             x = (mi.rcMonitor.left + mi.rcMonitor.right) / 2 - w / 2;
-            y = mi.rcMonitor.top + static_cast<int>(std::lround(DockTopOffset * scale_));
+            // Another AppBar can already use the top of the screen.
+            const int top = appBar_ ? appBarRect_.top : mi.rcMonitor.top;
+            y = top + (config_.dockStyle == DockStyle::Flush ? 0 : static_cast<int>(std::lround(DockTopOffset * scale_)));
         }
         else if (HiddenMode())
         {
@@ -253,6 +257,67 @@ namespace dm
         SetWindowPos(hwnd_, HWND_TOPMOST, x, y, w, h, SWP_NOACTIVATE);
         regionDirty_ = true;
         Kick();
+    }
+
+    // Screen top mode: an AppBar keeps the area of the toolbar, so that
+    // maximized windows stay below it.
+    void App::UpdateAppBar()
+    {
+        scene_.SetFlushTop(config_.mode == PositionMode::Dock && config_.dockStyle == DockStyle::Flush);
+        const bool wanted = config_.mode == PositionMode::Dock && config_.appBar;
+        if (!wanted)
+        {
+            RemoveAppBar();
+            return;
+        }
+        if (!appBar_)
+        {
+            APPBARDATA abd{ sizeof(abd) };
+            abd.hWnd = hwnd_;
+            abd.uCallbackMessage = AppBarMessage;
+            appBar_ = SHAppBarMessage(ABM_NEW, &abd) != FALSE;
+            if (!appBar_)
+            {
+                return;
+            }
+        }
+        SetAppBarPos();
+    }
+
+    void App::SetAppBarPos()
+    {
+        if (!appBar_)
+        {
+            return;
+        }
+        HMONITOR mon = MonitorFromPoint(anchor_, MONITOR_DEFAULTTOPRIMARY);
+        MONITORINFO mi{ sizeof(mi) };
+        GetMonitorInfoW(mon, &mi);
+        // Flush: the toolbar only. Float: the gap above, the toolbar, and the same gap below.
+        const float dip = config_.dockStyle == DockStyle::Flush ? BarHeight : BarHeight + DockTopOffset * 2;
+        const int height = static_cast<int>(std::ceil(dip * scale_));
+
+        APPBARDATA abd{ sizeof(abd) };
+        abd.hWnd = hwnd_;
+        abd.uEdge = ABE_TOP;
+        abd.rc = mi.rcMonitor;
+        abd.rc.bottom = abd.rc.top + height;
+        SHAppBarMessage(ABM_QUERYPOS, &abd);
+        abd.rc.bottom = abd.rc.top + height;
+        SHAppBarMessage(ABM_SETPOS, &abd);
+        appBarRect_ = abd.rc;
+    }
+
+    void App::RemoveAppBar()
+    {
+        if (!appBar_)
+        {
+            return;
+        }
+        APPBARDATA abd{ sizeof(abd) };
+        abd.hWnd = hwnd_;
+        SHAppBarMessage(ABM_REMOVE, &abd);
+        appBar_ = false;
     }
 
     void App::MoveWindowToAnchor()
@@ -1256,9 +1321,30 @@ namespace dm
         const POINT p{ GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
         switch (msg)
         {
+        case AppBarMessage:
+            if (wp == ABN_POSCHANGED)
+            {
+                SetAppBarPos();
+                PlaceWindow();
+            }
+            return 0;
+        case WM_WINDOWPOSCHANGED:
+            if (appBar_)
+            {
+                APPBARDATA abd{ sizeof(abd) };
+                abd.hWnd = hwnd_;
+                SHAppBarMessage(ABM_WINDOWPOSCHANGED, &abd);
+            }
+            break;
         case WM_MOUSEACTIVATE:
             return (runOpen_ || summoned_) ? MA_ACTIVATE : MA_NOACTIVATE;
         case WM_ACTIVATE:
+            if (appBar_)
+            {
+                APPBARDATA abd{ sizeof(abd) };
+                abd.hWnd = hwnd_;
+                SHAppBarMessage(ABM_ACTIVATE, &abd);
+            }
             if (LOWORD(wp) == WA_INACTIVE && !menuOpen_)
             {
                 if (runOpen_)
@@ -1388,9 +1474,11 @@ namespace dm
         case WM_DPICHANGED:
             scale_ = HIWORD(wp) / 96.f;
             scene_.SetScale(scale_);
+            UpdateAppBar();
             PlaceWindow();
             return 0;
         case WM_DISPLAYCHANGE:
+            UpdateAppBar();
             PlaceWindow();
             return 0;
         case WM_SETTINGCHANGE:
@@ -1408,6 +1496,7 @@ namespace dm
             }
             return 0;
         case WM_DESTROY:
+            RemoveAppBar();
             PostQuitMessage(0);
             return 0;
         default:

@@ -20,6 +20,10 @@ namespace dm
             { PositionMode::Center, L"center" },
             { PositionMode::Cursor, L"cursor" },
         };
+        constexpr EnumName<DockStyle> DockStyleNames[] = {
+            { DockStyle::Float, L"float" },
+            { DockStyle::Flush, L"flush" },
+        };
         constexpr EnumName<Theme> ThemeNames[] = { { Theme::Dark, L"dark" }, { Theme::Light, L"light" } };
         constexpr EnumName<Material> MaterialNames[] = { { Material::Acrylic, L"acrylic" }, { Material::Solid, L"solid" } };
         constexpr EnumName<CollapsedStyle> StyleNames[] = { { CollapsedStyle::Slice, L"slice" }, { CollapsedStyle::Glow, L"glow" } };
@@ -205,6 +209,8 @@ namespace dm
         if (auto pos = o.GetNamedObject(L"position", nullptr))
         {
             c.mode = Parse(ModeNames, pos.GetNamedString(L"mode", L"float"), PositionMode::Float);
+            c.dockStyle = Parse(DockStyleNames, pos.GetNamedString(L"dockStyle", L"float"), DockStyle::Float);
+            c.appBar = pos.GetNamedBoolean(L"appBar", true);
             if (pos.HasKey(L"x") && pos.HasKey(L"y"))
             {
                 c.x = static_cast<int>(pos.GetNamedNumber(L"x"));
@@ -275,6 +281,8 @@ namespace dm
 
         JsonObject pos;
         pos.SetNamedValue(L"mode", JsonValue::CreateStringValue(Name(ModeNames, mode)));
+        pos.SetNamedValue(L"dockStyle", JsonValue::CreateStringValue(Name(DockStyleNames, dockStyle)));
+        pos.SetNamedValue(L"appBar", JsonValue::CreateBooleanValue(appBar));
         if (x != Unset && y != Unset)
         {
             pos.SetNamedValue(L"x", JsonValue::CreateNumberValue(x));
