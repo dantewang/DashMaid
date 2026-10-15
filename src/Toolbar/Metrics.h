@@ -88,7 +88,9 @@ namespace dm::metrics
 
     inline float ItemRadius(float w, float h)
     {
-        // border-radius: 6px of the reference component. CSS limits it to half the shorter side.
-        return std::max(0.f, std::min({ w / 2, h / 2, 6.f }));
+        // The toolbar radius is a third of its height, so a large item uses
+        // the same ratio. Small items keep at least 6 px (the reference
+        // component). The radius is never more than half the shorter side.
+        return std::max(0.f, std::min({ w / 2, h / 2, std::max(6.f, std::min(w, h) / 3) }));
     }
 }

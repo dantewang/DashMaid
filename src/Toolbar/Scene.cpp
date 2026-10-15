@@ -174,7 +174,7 @@ namespace dm
             const float l = (std::max({ d.r, d.g, d.b }) + std::min({ d.r, d.g, d.b })) / 2 / 255.f;
             if (theme == Theme::Dark)
             {
-                constexpr float minL = 0.55f;
+                constexpr float minL = 0.62f;
                 return l >= minL ? d : Mix(d, { 255, 255, 255 }, (minL - l) / (1.f - l));
             }
             constexpr float maxL = 0.45f;
@@ -607,12 +607,12 @@ namespace dm
         {
             const Rgb st[4] = { Mix(d, black, 0.12f), d, Mix(d, white, 0.22f), pal.plate };
             plate = Stops(st, t);
-            iconSize = h * 0.74f;
+            iconSize = h;  // The expanded item shows the icon at the full size of the box.
             iconOpacity = pa * pa;
             highlight = 0.45f * q;  // inset 0 1px 0 rgba(255,255,255,.45q)
             ring = 0.f;
             outer = {
-                { 0, 0, (5 + 8 * g) * k, (0.5f + 1.5f * g) * k, Css(glow, (0.5f + 0.4f * g) * q) },
+                { 0, 0, (7 + 10 * g) * k, (1 + 2 * g) * k, Css(glow, (0.65f + 0.35f * g) * q) },
                 { 0, 6 * pa * k, 18 * pa * k, 0, Css(black, 0.32f * pa) },
                 { 0, 0, 18 * pa * k, 0, Css(glow, 0.28f * pa) },
             };
@@ -621,7 +621,7 @@ namespace dm
         {
             const Rgb st[4] = { Mix(d, black, 0.62f), Mix(d, black, 0.48f), Mix(d, black, 0.3f), pal.plate };
             plate = Stops(st, t);
-            iconSize = h * Lerp(1.3f, 0.74f, pa);
+            iconSize = h * Lerp(1.3f, 1.f, pa);
             iconOpacity = 1.f;
             brightness = pa >= 1.f ? 1.f : Lerp(0.72f, 1.f, std::max(g, pa));
             highlight = 0.3f * q;  // inset 0 1px 0 rgba(255,255,255,.3q)
@@ -629,7 +629,7 @@ namespace dm
             // The glow shows the item when the icon has the color of the toolbar.
             outer = {
                 { 0, 0, 0, 1, Css(black, 0.55f * q) },
-                { 0, 0, (4 + 6 * g) * k, (0.5f + 0.5f * g) * k, Css(glow, (0.45f + 0.25f * g) * q) },
+                { 0, 0, (6 + 8 * g) * k, (1 + g) * k, Css(glow, (0.6f + 0.3f * g) * q) },
                 { 0, (2 + 5 * pa) * k, (5 + 13 * pa) * k, 0, Css(black, 0.3f + 0.08f * pa) },
             };
         }
@@ -697,7 +697,7 @@ namespace dm
         {
             return;
         }
-        const float maxSize = std::max(AppExpanded * 0.74f, AppH[2] * 1.3f);
+        const float maxSize = std::max(AppExpanded, AppH[2] * 1.3f);
         const auto px = PxSize(maxSize, maxSize, scale_);
         if (!v.iconSurface)
         {
