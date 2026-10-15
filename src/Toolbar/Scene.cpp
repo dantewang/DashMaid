@@ -21,8 +21,7 @@ namespace dm
         constexpr wchar_t MonoFont[] = L"Consolas";
         constexpr wchar_t Locale[] = L"zh-CN";
 
-        // Room around the drawn shapes for their shadows (CSS px).
-        constexpr float ItemMargin = 36.f;
+        // Room around the orb for its shadows (CSS px).
         constexpr float OrbMargin = 30.f;
 
         // backdrop-filter: blur(24px) saturate(1.6). The host backdrop has its
@@ -40,10 +39,9 @@ namespace dm
             Color tintAcrylic;
             Color tintSolid;
             Color border;
-            Color resultsTint;
+            Color resultsAcrylic;
             Color resultsBorder;
-            float trackShadow;
-            float resultsShadow;
+            Color resultsSolid;
             uint32_t inputText;
             uint32_t placeholder;
             float placeholderAlpha;
@@ -65,13 +63,13 @@ namespace dm
         {
             static const Palette dark{
                 { 246, 246, 246 }, { 163, 30, 30, 30 }, { 255, 27, 27, 27 }, { 18, 255, 255, 255 },
-                { 224, 30, 30, 30 }, { 20, 255, 255, 255 }, 0.35f, 0.4f,
+                { 224, 30, 30, 30 }, { 20, 255, 255, 255 }, { 255, 27, 27, 27 },
                 0xF2F2F2, 0xFFFFFF, 0.42f, 0x8FE0CF, 0xECECEC, 0x8FE0CF, 0xFFFFFF, 0.1f,
                 { { 51, 51, 51 }, { 99, 99, 99 }, { 163, 163, 163 }, { 255, 255, 255 } },
                 { 46, 46, 46 }, { 15, 255, 255, 255 }, 0xD0D0D0, 0x111111 };
             static const Palette light{
                 { 255, 255, 255 }, { 179, 247, 247, 247 }, { 255, 244, 244, 244 }, { 15, 0, 0, 0 },
-                { 230, 248, 248, 248 }, { 15, 0, 0, 0 }, 0.22f, 0.22f,
+                { 230, 248, 248, 248 }, { 15, 0, 0, 0 }, { 255, 244, 244, 244 },
                 0x111111, 0x000000, 0.4f, 0x2B7A6A, 0x1B1B1B, 0x2B7A6A, 0x000000, 0.06f,
                 { { 206, 206, 206 }, { 158, 158, 158 }, { 98, 98, 98 }, { 24, 24, 24 } },
                 { 226, 226, 226 }, { 13, 0, 0, 0 }, 0x3A3A3A, 0xFFFFFF };
@@ -190,6 +188,27 @@ namespace dm
             ShadowList list = Interpolate(normal, hovered, hover);
             return pulse > 0.f ? Interpolate(list, pulsing, pulse) : list;
         }
+
+        // The shadow of the original component, scaled from its height of 72 px to 48 px.
+        const ShadowList& PanelShadows()
+        {
+            static const ShadowList list = {
+                { 0, 0.322f, 1.352f, -1.f, WithAlpha(Black, 0.06f) },
+                { 0, 2.667f, 11.2f, -2.f, WithAlpha(Black, 0.04f) },
+            };
+            return list;
+        }
+
+        // DropShadow.BlurRadius for a CSS blur radius (both in pixels). Measured:
+        // DropShadow uses a standard deviation of BlurRadius / 3.
+        // CSS uses a standard deviation of blur / 2.
+        constexpr float DropShadowBlur = 1.5f;
+
+        // CSS: a spread changes the radius by the spread, but a radius of zero stays zero.
+        float SpreadRadius(float radius, float spread)
+        {
+            return radius <= 0.f ? 0.f : std::max(0.f, radius + spread);
+        }
     }
 
     // ---------------------------------------------------------------- setup
@@ -259,13 +278,15 @@ namespace dm
         // Paint order of the prototype: the toolbar box, then its children
         // (the orb and the items, which can extend out of the box), then the results.
         auto stage = stage_.Children();
-        stage.InsertAtTop(track_.shadow.sprite);
+        // The first shadow in a CSS list is on top.
+        stage.InsertAtTop(track_.shadows[1].sprite);
+        stage.InsertAtTop(track_.shadows[0].sprite);
         stage.InsertAtTop(track_.root);
         stage.InsertAtTop(orb_.sprite);
         stage.InsertAtTop(itemsLayer_);
-        stage.InsertAtTop(results_.shadow.sprite);
+        stage.InsertAtTop(results_.shadows[1].sprite);
+        stage.InsertAtTop(results_.shadows[0].sprite);
         stage.InsertAtTop(results_.root);
-        results_.shadow.sprite.IsVisible(false);
         results_.root.IsVisible(false);
 
         barHeight_.x = barHeight_.target = BarHeight;
@@ -385,7 +406,8 @@ namespace dm
         p.borderShape.StrokeBrush(p.borderBrush);
         p.border = c.CreateShapeVisual();
         p.border.Shapes().Append(p.borderShape);
-        p.shadow = CreateDrawn();
+        p.shadows[0] = CreateCaster();
+        p.shadows[1] = CreateCaster();
 
         auto children = p.root.Children();
         children.InsertAtTop(p.backdrop);
@@ -405,7 +427,7 @@ namespace dm
         p.clip.Size(size);
         p.clip.CornerRadius({ r, r });
         p.backdrop.Size(size);
-        p.backdrop.IsVisible(material_ == Material::Acrylic || &p == &results_);
+        p.backdrop.IsVisible(material_ == Material::Acrylic);
         p.tint.Size(size);
         p.tintBrush.Color(style.tint);
         p.content.Size(size);
@@ -416,13 +438,55 @@ namespace dm
         p.borderGeom.CornerRadius({ std::max(0.f, r - s / 2), std::max(0.f, r - s / 2) });
         p.borderBrush.Color(style.border);
 
-        const Shadow& sh = style.shadow;
-        const float m = std::ceil(sh.blur * 1.5f + std::fabs(sh.y) + std::fabs(sh.x) + sh.spread + 2);
-        Redraw(p.shadow, w + m * 2, h + m * 2, { w, h, style.radius, sh.y, sh.blur, sh.color.a },
-               [&](ID2D1DeviceContext* dc) {
-                   PaintShadows(dc, helper_.get(), D2D1::RectF(m, m, m + w, m + h), style.radius, { sh }, false, s);
-               });
-        p.shadow.sprite.Offset({ (x - m) * s, (y - m) * s, 0 });
+        const ShadowList& list = style.shadows;
+        for (size_t i = 0; i < std::size(p.shadows); ++i)
+        {
+            p.shadows[i].sprite.IsVisible(i < list.size());
+            if (i < list.size())
+            {
+                SetCaster(p.shadows[i], x, y, w, h, style.radius, list[i]);
+            }
+        }
+    }
+
+    Scene::Caster Scene::CreateCaster()
+    {
+        auto& c = compositor_;
+        Caster k;
+        k.geom = c.CreateRoundedRectangleGeometry();
+        auto shape = c.CreateSpriteShape(k.geom);
+        shape.FillBrush(c.CreateColorBrush({ 255, 255, 255, 255 }));
+        k.shape = c.CreateShapeVisual();
+        k.shape.Shapes().Append(shape);
+        k.surface = c.CreateVisualSurface();
+        k.surface.SourceVisual(k.shape);
+        auto mask = c.CreateSurfaceBrush(k.surface);
+        mask.Stretch(wuc::CompositionStretch::None);
+        mask.HorizontalAlignmentRatio(0.f);
+        mask.VerticalAlignmentRatio(0.f);
+        k.shadow = c.CreateDropShadow();
+        k.shadow.Mask(mask);
+        k.sprite = c.CreateSpriteVisual();
+        k.sprite.Shadow(k.shadow);
+        return k;
+    }
+
+    void Scene::SetCaster(Caster& k, float x, float y, float w, float h, float radius, const Shadow& sh)
+    {
+        const float s = scale_;
+        const float d = sh.spread;
+        const float sw = std::max(0.f, w + 2 * d) * s, shh = std::max(0.f, h + 2 * d) * s;
+        const float r = std::min(SpreadRadius(radius, d) * s, std::min(sw, shh) / 2);
+        k.sprite.Offset({ (x - d) * s, (y - d) * s, 0 });
+        k.sprite.Size({ sw, shh });
+        k.shape.Size({ sw, shh });
+        k.geom.Size({ sw, shh });
+        k.geom.CornerRadius({ r, r });
+        k.surface.SourceSize({ sw, shh });
+        k.shadow.Offset({ sh.x * s, sh.y * s, 0 });
+        k.shadow.BlurRadius(sh.blur * s * DropShadowBlur);
+        k.shadow.Color({ Byte(sh.color.a * 255.f), Byte(sh.color.r * 255.f), Byte(sh.color.g * 255.f), Byte(sh.color.b * 255.f) });
+        k.sprite.IsVisible(sh.color.a > 0.f && sw > 0.f && shh > 0.f);
     }
 
     template <class F>
@@ -495,7 +559,8 @@ namespace dm
     // ---------------------------------------------------------------- drawing
 
     // paintItem() of the prototype for app items: outer shadows, the plate,
-    // inset shadows, then the icon clipped to the plate.
+    // inset shadows, then the icon clipped to the plate. The compositor draws
+    // all parts, so a frame only writes sizes, offsets, and colors.
     void Scene::RenderItem(ItemVisual& v, float cx, float cy, float)
     {
         const float s = scale_;
@@ -507,17 +572,18 @@ namespace dm
         const CollapsedStyle style = v.src.style.value_or(style_);
 
         Rgb plate;
-        float iconSize, iconOpacity, brightness = 1.f;
-        ShadowList shadows;
+        float iconSize, iconOpacity, brightness = 1.f, highlight, ring;
+        ShadowList outer;
         if (style == CollapsedStyle::Glow)
         {
             const Rgb st[4] = { Mix(d, black, 0.12f), d, Mix(d, white, 0.22f), pal.plate };
             plate = Stops(st, t);
             iconSize = h * 0.74f;
             iconOpacity = pa * pa;
-            shadows = {
+            highlight = 0.45f * q;  // inset 0 1px 0 rgba(255,255,255,.45q)
+            ring = 0.f;
+            outer = {
                 { 0, 0, 5 + 8 * g, 0.5f + 1.5f * g, Css(d, (0.5f + 0.4f * g) * q) },
-                { 0, 1, 0, 0, Css(white, 0.45f * q), true },
                 { 0, 6 * pa, 18 * pa, 0, Css(black, 0.32f * pa) },
                 { 0, 0, 18 * pa, 0, Css(d, 0.28f * pa) },
             };
@@ -529,74 +595,103 @@ namespace dm
             iconSize = h * Lerp(1.3f, 0.74f, pa);
             iconOpacity = 1.f;
             brightness = pa >= 1.f ? 1.f : Lerp(0.72f, 1.f, std::max(g, pa));
-            shadows = {
-                { 0, 1, 0, 0, Css(white, 0.3f * q), true },
-                { 0, 0, 0, 1, Css(white, 0.14f * q), true },
+            highlight = 0.3f * q;  // inset 0 1px 0 rgba(255,255,255,.3q)
+            ring = 0.14f * q;      // inset 0 0 0 1px rgba(255,255,255,.14q)
+            outer = {
                 { 0, 0, 0, 1, Css(black, 0.55f * q) },
                 { 0, 2 + 5 * pa, 5 + 13 * pa, 0, Css(black, 0.3f + 0.08f * pa) },
             };
         }
         if (theme_ == Theme::Light)
         {
-            shadows.push_back({ 0, 0, 0, 1, Css(black, 0.1f * pa) });
+            outer.push_back({ 0, 0, 0, 1, Css(black, 0.1f * pa) });
         }
 
-        // Keep the surface on whole pixels and move the drawing by the fraction.
-        const float size = AppExpanded + ItemMargin * 2;
-        const float leftPx = cx * s - size * s / 2, topPx = cy * s - size * s / 2;
-        const float spriteX = std::floor(leftPx), spriteY = std::floor(topPx);
-        const float fx = (leftPx - spriteX) / s, fy = (topPx - spriteY) / s;
+        const float W = w * s, H = h * s;
+        const float r = ItemRadius(w, h), R = r * s;
+        v.art.Offset({ (cx - w / 2) * s, (cy - h / 2) * s, 0 });
+        v.art.Size({ W, H });
+        v.art.CenterPoint({ W / 2, H / 2, 0 });
+        v.art.Scale({ v.press.x, v.press.x, 1 });
 
-        Redraw(v.art, size, size, { w, h, t, fx, fy, static_cast<float>(style) }, [&](ID2D1DeviceContext* dc) {
-            const float ox = size / 2 + fx, oy = size / 2 + fy;
-            const D2D1_RECT_F box = D2D1::RectF(ox - w / 2, oy - h / 2, ox + w / 2, oy + h / 2);
-            const float r = ItemRadius(w, h);
-
-            PaintShadows(dc, helper_.get(), box, r, shadows, false, s);
-            winrt::com_ptr<ID2D1SolidColorBrush> fill;
-            dc->CreateSolidColorBrush(ToD2D(Css(plate, 1.f)), fill.put());
-            dc->FillRoundedRectangle(D2D1::RoundedRect(box, r, r), fill.get());
-            PaintShadows(dc, helper_.get(), box, r, shadows, true, s);
-
-            ID2D1Bitmap* bmp = BitmapFor(v.src.icon.get(), dc);
-            if (!bmp || iconOpacity <= 0.f || w <= 0.f || h <= 0.f)
+        // The first shadow in the list is on top. casters[0] is the lowest.
+        const size_t n = std::min(outer.size(), std::size(v.casters));
+        for (size_t i = 0; i < std::size(v.casters); ++i)
+        {
+            if (i < n)
             {
-                return;
-            }
-            winrt::com_ptr<ID2D1RoundedRectangleGeometry> clip;
-            d2dFactory_->CreateRoundedRectangleGeometry(D2D1::RoundedRect(box, r, r), clip.put());
-            dc->PushLayer(D2D1::LayerParameters1(D2D1::InfiniteRect(), clip.get()), nullptr);
-            const D2D1_RECT_F dst = D2D1::RectF(ox - iconSize / 2, oy - iconSize / 2, ox + iconSize / 2, oy + iconSize / 2);
-            if (brightness < 1.f)
-            {
-                // CSS filter: brightness(). It scales the color of the icon only.
-                winrt::com_ptr<ID2D1Effect> matrix;
-                if (SUCCEEDED(dc->CreateEffect(CLSID_D2D1ColorMatrix, matrix.put())))
-                {
-                    const D2D1_MATRIX_5X4_F m = D2D1::Matrix5x4F(brightness, 0, 0, 0, 0, brightness, 0, 0, 0, 0, brightness, 0,
-                                                                 0, 0, 0, 1, 0, 0, 0, 0);
-                    matrix->SetValue(D2D1_COLORMATRIX_PROP_COLOR_MATRIX, m);
-                    matrix->SetInput(0, bmp);
-                    D2D1_MATRIX_3X2_F old;
-                    dc->GetTransform(&old);
-                    const D2D1_SIZE_F bs = bmp->GetSize();
-                    dc->SetTransform(D2D1::Matrix3x2F::Scale(iconSize / bs.width, iconSize / bs.height) *
-                                     D2D1::Matrix3x2F::Translation(dst.left, dst.top) *
-                                     D2D1::Matrix3x2F::ReinterpretBaseType(&old)[0]);
-                    dc->DrawImage(matrix.get(), D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
-                    dc->SetTransform(old);
-                }
+                SetCaster(v.casters[i], 0, 0, w, h, r, outer[n - 1 - i]);
             }
             else
             {
-                dc->DrawBitmap(bmp, &dst, iconOpacity, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
+                v.casters[i].sprite.IsVisible(false);
             }
-            dc->PopLayer();
-        });
+        }
 
-        v.art.sprite.Offset({ spriteX, spriteY, 0 });
-        v.art.sprite.CenterPoint({ cx * s - spriteX, cy * s - spriteY, 0 });
-        v.art.sprite.Scale({ v.press.x, v.press.x, 1 });
+        v.box.Size({ W, H });
+        v.clip.Size({ W, H });
+        v.clip.CornerRadius({ R, R });
+        v.plate.Size({ W, H });
+        v.plateBrush.Color(ToColor(plate));
+        v.highlight.Size({ W, H });
+        v.highlightBrush.Color(ToColor(white, highlight));
+        v.cover.Offset({ 0, s, 0 });
+        v.cover.Size({ W, H });
+        v.coverClip.Size({ W, H });
+        v.coverClip.CornerRadius({ R, R });
+        v.coverBrush.Color(ToColor(plate));
+        v.ring.Size({ W, H });
+        v.ringShape.StrokeThickness(s);
+        v.ringGeom.Offset({ s / 2, s / 2 });
+        v.ringGeom.Size({ std::max(0.f, W - s), std::max(0.f, H - s) });
+        v.ringGeom.CornerRadius({ std::max(0.f, R - s / 2), std::max(0.f, R - s / 2) });
+        v.ringBrush.Color(ToColor(white, ring));
+
+        const float I = iconSize * s;
+        const float3 iconOffset{ (W - I) / 2, (H - I) / 2, 0 };
+        v.icon.Offset(iconOffset);
+        v.icon.Size({ I, I });
+        v.icon.Opacity(iconOpacity);
+        v.icon.IsVisible(iconOpacity > 0.f && v.iconSurface != nullptr);
+        v.dim.Offset(iconOffset);
+        v.dim.Size({ I, I });
+        v.dim.Opacity(1.f - brightness);
+        v.dim.IsVisible(brightness < 1.f && v.iconSurface != nullptr);
+    }
+
+    // Draws the icon once, at the largest size that the item shows.
+    void Scene::RenderIcon(ItemVisual& v)
+    {
+        if (!v.src.icon)
+        {
+            return;
+        }
+        const float maxSize = std::max(AppExpanded * 0.74f, AppH[2] * 1.3f);
+        const auto px = PxSize(maxSize, maxSize, scale_);
+        if (!v.iconSurface)
+        {
+            v.iconSurface = graphics_.CreateDrawingSurface2(px, wgd::DirectXPixelFormat::B8G8R8A8UIntNormalized,
+                                                            wgd::DirectXAlphaMode::Premultiplied);
+            auto brush = compositor_.CreateSurfaceBrush(v.iconSurface);
+            brush.Stretch(wuc::CompositionStretch::Fill);
+            brush.BitmapInterpolationMode(wuc::CompositionBitmapInterpolationMode::Linear);
+            v.icon.Brush(brush);
+            auto mask = compositor_.CreateMaskBrush();
+            mask.Source(compositor_.CreateColorBrush({ 255, 0, 0, 0 }));
+            mask.Mask(brush);
+            v.dim.Brush(mask);
+        }
+        else if (v.iconSurface.SizeInt32() != px)
+        {
+            v.iconSurface.Resize(px);
+        }
+        Paint(v.iconSurface, px.Width, px.Height, [&](ID2D1DeviceContext* dc) {
+            if (ID2D1Bitmap* bmp = BitmapFor(v.src.icon.get(), dc))
+            {
+                const D2D1_RECT_F dst = D2D1::RectF(0, 0, static_cast<float>(px.Width), static_cast<float>(px.Height));
+                dc->DrawBitmap(bmp, &dst, 1.f, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
+            }
+        });
     }
 
     // .sb-orb: a radial gradient, a ring, a drop shadow, and an inset shadow.
@@ -939,13 +1034,14 @@ namespace dm
     {
         track_.backdrop.Brush(BackdropBrush(track_.saturate));
         results_.backdrop.Brush(BackdropBrush(results_.saturate));
-        track_.shadow.key.clear();
-        results_.shadow.key.clear();
         orb_.key.clear();
         for (auto& v : items_)
         {
-            v.art.key.clear();
-            if (v.src.widget)
+            if (!v.src.widget)
+            {
+                RenderIcon(v);
+            }
+            else
             {
                 RenderLabel(v, false);
                 RenderLabel(v, true);
@@ -990,36 +1086,61 @@ namespace dm
             auto& c = compositor_;
             v.root = c.CreateContainerVisual();
             v.slotClip = c.CreateInsetClip();
+            v.box = c.CreateContainerVisual();
+            v.clip = c.CreateRoundedRectangleGeometry();
+            v.box.Clip(c.CreateGeometricClip(v.clip));
+            v.plateBrush = c.CreateColorBrush();
+            v.plate = c.CreateSpriteVisual();
+            v.plate.Brush(v.plateBrush);
+            v.ringGeom = c.CreateRoundedRectangleGeometry();
+            v.ringBrush = c.CreateColorBrush();
+            v.ringShape = c.CreateSpriteShape(v.ringGeom);
+            v.ringShape.StrokeBrush(v.ringBrush);
+            v.ring = c.CreateShapeVisual();
+            v.ring.Shapes().Append(v.ringShape);
+            auto box = v.box.Children();
+            box.InsertAtTop(v.plate);
             if (v.src.widget)
             {
-                v.box = c.CreateContainerVisual();
-                v.clip = c.CreateRoundedRectangleGeometry();
-                v.box.Clip(c.CreateGeometricClip(v.clip));
-                v.plateBrush = c.CreateColorBrush();
-                v.plate = c.CreateSpriteVisual();
-                v.plate.Brush(v.plateBrush);
-                v.ringGeom = c.CreateRoundedRectangleGeometry();
-                v.ringBrush = c.CreateColorBrush();
-                v.ringShape = c.CreateSpriteShape(v.ringGeom);
-                v.ringShape.StrokeBrush(v.ringBrush);
-                v.ring = c.CreateShapeVisual();
-                v.ring.Shapes().Append(v.ringShape);
                 v.labelBrush = c.CreateSurfaceBrush();
                 v.labelBrush.Stretch(wuc::CompositionStretch::None);
                 v.labelBrush.HorizontalAlignmentRatio(0.f);
                 v.labelBrush.VerticalAlignmentRatio(0.f);
                 v.label = c.CreateSpriteVisual();
                 v.label.Brush(v.labelBrush);
-                auto box = v.box.Children();
-                box.InsertAtTop(v.plate);
                 box.InsertAtTop(v.ring);  // Inset shadow: below the text.
                 box.InsertAtTop(v.label);
                 v.root.Children().InsertAtTop(v.box);
             }
             else
             {
-                v.art = CreateDrawn();
-                v.root.Children().InsertAtTop(v.art.sprite);
+                // The highlight shows only where the cover (the plate, 1 px lower)
+                // does not hide it: that is "inset 0 1px 0".
+                v.highlightBrush = c.CreateColorBrush();
+                v.highlight = c.CreateSpriteVisual();
+                v.highlight.Brush(v.highlightBrush);
+                v.coverBrush = c.CreateColorBrush();
+                v.coverClip = c.CreateRoundedRectangleGeometry();
+                v.cover = c.CreateSpriteVisual();
+                v.cover.Brush(v.coverBrush);
+                v.cover.Clip(c.CreateGeometricClip(v.coverClip));
+                v.icon = c.CreateSpriteVisual();
+                v.dim = c.CreateSpriteVisual();
+                box.InsertAtTop(v.highlight);
+                box.InsertAtTop(v.cover);
+                box.InsertAtTop(v.ring);
+                box.InsertAtTop(v.icon);
+                box.InsertAtTop(v.dim);
+
+                v.art = c.CreateContainerVisual();
+                for (auto& k : v.casters)
+                {
+                    k = CreateCaster();
+                    v.art.Children().InsertAtTop(k.sprite);
+                }
+                v.art.Children().InsertAtTop(v.box);
+                v.root.Children().InsertAtTop(v.art);
+                RenderIcon(v);
             }
             itemsLayer_.Children().InsertAtTop(v.root);
             v.press.x = v.press.target = 1.f;
@@ -1207,11 +1328,6 @@ namespace dm
         return ShadowTop + BarHeightHover + ShadowBottom;
     }
 
-    float Scene::RadiusPx() const
-    {
-        return Radius * scale_;
-    }
-
     RECT Scene::RestTrackRect() const
     {
         const float w = TrackWidthFor(-1);
@@ -1220,11 +1336,14 @@ namespace dm
                  static_cast<LONG>(std::ceil((x0 + w) * scale_)), static_cast<LONG>(std::ceil((ShadowTop + BarHeight) * scale_)) };
     }
 
-    RECT Scene::InteractiveRect() const
+    RECT Scene::RestRegion() const
     {
-        const float bottom = ShadowTop + (RunVisible() ? RunContentHeight() : BarHeightHover);
-        return { static_cast<LONG>(std::floor(ShadowSide * scale_)), static_cast<LONG>(std::floor(ShadowTop * scale_)),
-                 static_cast<LONG>(std::ceil((windowWidth_ - ShadowSide) * scale_)), static_cast<LONG>(std::ceil(bottom * scale_)) };
+        const float w = TrackWidthFor(-1);
+        const float x0 = (windowWidth_ - w) / 2;
+        return { static_cast<LONG>(std::floor((x0 - RestShadowSide) * scale_)),
+                 static_cast<LONG>(std::floor((ShadowTop - RestShadowTop) * scale_)),
+                 static_cast<LONG>(std::ceil((x0 + w + RestShadowSide) * scale_)),
+                 static_cast<LONG>(std::ceil((ShadowTop + BarHeight + RestShadowBottom) * scale_)) };
     }
 
     int Scene::HitTestItem(POINT p) const
@@ -1398,7 +1517,7 @@ namespace dm
         // The toolbar box.
         LayoutPanel(track_, x0, 0, trackW, bh,
                     { material_ == Material::Acrylic ? pal.tintAcrylic : pal.tintSolid, pal.border,
-                      { 0, 10, 30, 0, { 0, 0, 0, pal.trackShadow } }, Radius });
+                      PanelShadows(), Radius });
 
         // The orb, with its CSS transitions and the pulse of the run box.
         float pulse = 0.f;
@@ -1422,11 +1541,15 @@ namespace dm
 
         // Results: shown at once when the run box opens, like the prototype.
         results_.root.IsVisible(runOpen_);
-        results_.shadow.sprite.IsVisible(runOpen_);
+        for (auto& k : results_.shadows)
+        {
+            k.sprite.IsVisible(runOpen_);
+        }
         if (runOpen_)
         {
             LayoutPanel(results_, x0, bh + ResultsGap, ResultsWidth(), ResultsHeight(),
-                        { pal.resultsTint, pal.resultsBorder, { 0, 14, 40, 0, { 0, 0, 0, pal.resultsShadow } }, ResultsRadius });
+                        { material_ == Material::Acrylic ? pal.resultsAcrylic : pal.resultsSolid, pal.resultsBorder, PanelShadows(),
+                          ResultsRadius });
         }
 
         // Items. While the run box is open, each slot clips its item.

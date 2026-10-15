@@ -62,12 +62,18 @@ namespace dm::metrics
     constexpr float RowAppHeight = RowPadY * 2 + TitleLineHeight + SubtitleLineHeight;
     constexpr float RowCommandHeight = RowPadY * 2 + ResultIcon;
 
-    // Window margins for the shadows. Each margin holds 3 standard
-    // deviations of the largest shadow on that side, plus its offset.
-    constexpr float ShadowSide = 60.f;
-    constexpr float ShadowTop = 40.f;
-    constexpr float ShadowBottom = 55.f;
-    constexpr float ResultsShadowBottom = 74.f;
+    // Window margins for the shadows of the expanded items. Each margin holds
+    // 2.5 standard deviations of the largest shadow on that side.
+    constexpr float ShadowSide = 14.f;
+    constexpr float ShadowTop = 16.f;
+    constexpr float ShadowBottom = 24.f;
+    constexpr float ResultsShadowBottom = 10.f;
+
+    // The visible part of the toolbar shadow at rest. The window region
+    // includes it.
+    constexpr float RestShadowSide = 5.f;
+    constexpr float RestShadowTop = 3.f;
+    constexpr float RestShadowBottom = 8.f;
 
     // Extra width on each side for spring overshoot.
     constexpr float OvershootMargin = 4.f;

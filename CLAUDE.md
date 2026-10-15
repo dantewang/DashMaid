@@ -8,7 +8,9 @@ The toolbar process works for app items: icons, the hover animation, click to st
 
 The look of the toolbar must be the same as the prototype: colors, shadows, antialiasing, and timing. `Scene.cpp` uses the CSS values of the prototype directly. To compare, put the app and the prototype on the same plain background and compare the pixels.
 
-The toolbar uses two windows. The input window gets all messages and has the window region. The visual window is owned by the input window, is transparent to the mouse, and has the Composition content. It has no region, so the corners keep their antialiasing, and it has margins for the shadows.
+The toolbar uses one window. The window has margins for the shadows. At rest, the window region is a rectangle around the toolbar and its visible shadow, so the rounded corners keep their antialiasing. While the toolbar is open or moves, the region is the full window. The compositor draws the shadows (`DropShadow`) and the app items, so an animation frame only writes sizes, offsets, and colors.
+
+The background is opaque by default, like the original component. Its shadow is the shadow of the original component, scaled to the height of 48 px.
 
 An HTML prototype shows the interaction and the layout. The prototype is published as a private Artifact at https://claude.ai/artifact/HguynqyhfMH1omXntvjZMg. A local copy is at `prototype/dashmaid.html`. Git ignores the `prototype/` folder. Do not commit the prototype.
 
@@ -70,7 +72,7 @@ The output is `build\src\Toolbar\Debug\DashMaid.exe`. Only one instance runs at 
 `%APPDATA%\DashMaid\config.json` (UTF-8). The toolbar writes the defaults when the file does not exist. Fields:
 
 - `position`: `mode` (`float`, `dock`, `center`, `cursor`), `x` (window center, screen pixels), `y` (window top, screen pixels).
-- `theme`: `dark` or `light`. `material`: `acrylic` or `solid`. `collapsedStyle`: `slice` or `glow`.
+- `theme`: `dark` or `light`. `material`: `solid` (default) or `acrylic`. `collapsedStyle`: `slice` or `glow`.
 - `widgetDisplay`: `text` (widgets always show their text) or `collapse` (widgets collapse like app items).
 - `spring`: `stiffness`, `damping`.
 - `hotkeys`: `run` (default `Ctrl+Alt+R`) and `toggle` (default ``Alt+` ``, registered only in the `center` and `cursor` modes). An empty string disables a hotkey.

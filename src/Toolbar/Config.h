@@ -39,7 +39,7 @@ namespace dm
         int x = Unset;  // Screen X of the window center, in physical pixels.
         int y = Unset;  // Screen Y of the window top, in physical pixels.
         Theme theme = Theme::Dark;
-        Material material = Material::Acrylic;
+        Material material = Material::Solid;
         CollapsedStyle collapsedStyle = CollapsedStyle::Slice;
         bool widgetsCollapse = false;  // False: widgets always show their text.
         SpringParams spring;

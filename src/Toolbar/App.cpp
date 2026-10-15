@@ -13,20 +13,6 @@ namespace dm
     namespace
     {
         constexpr wchar_t WindowClass[] = L"DashMaid.Toolbar";
-        constexpr wchar_t VisualClass[] = L"DashMaid.ToolbarVisual";
-
-        LRESULT CALLBACK VisualWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
-        {
-            if (msg == WM_NCHITTEST)
-            {
-                return HTTRANSPARENT;
-            }
-            if (msg == WM_MOUSEACTIVATE)
-            {
-                return MA_NOACTIVATE;
-            }
-            return DefWindowProcW(hwnd, msg, wp, lp);
-        }
         constexpr UINT TrayMessage = WM_APP + 1;
         constexpr UINT CatalogMessage = WM_APP + 2;
         constexpr UINT WidgetMessage = WM_APP + 3;
@@ -99,10 +85,6 @@ namespace dm
         wc.lpszClassName = WindowClass;
         RegisterClassExW(&wc);
 
-        // Two windows with the same rectangle. The input window has no content and
-        // a window region, so it gets mouse input only on the toolbar. The visual
-        // window above it shows the content with antialiased edges and shadows,
-        // and mouse input goes through it.
         hwnd_ = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP,
                                 WindowClass, strings::AppName, WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, instance, this);
         if (!hwnd_)
@@ -110,22 +92,8 @@ namespace dm
             return false;
         }
 
-        WNDCLASSEXW vc{ sizeof(vc) };
-        vc.lpfnWndProc = VisualWndProc;
-        vc.hInstance = instance;
-        vc.lpszClassName = VisualClass;
-        RegisterClassExW(&vc);
-        visual_ = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP |
-                                      WS_EX_LAYERED | WS_EX_TRANSPARENT,
-                                  VisualClass, strings::AppName, WS_POPUP, 0, 0, 1, 1, hwnd_, nullptr, instance, nullptr);
-        if (!visual_)
-        {
-            return false;
-        }
-        SetLayeredWindowAttributes(visual_, 0, 255, LWA_ALPHA);
-
         scale_ = GetDpiForWindow(hwnd_) / 96.f;
-        scene_.Initialize(visual_, scale_);
+        scene_.Initialize(hwnd_, scale_);
 
         auto loaded = Config::Load(configText_);
         configBroken_ = !loaded;
@@ -365,8 +333,10 @@ namespace dm
 
     // The window is wider than the toolbar at rest. Outside the toolbar,
     // the window must not take mouse input, so at rest the window region
-    // is the toolbar shape. While the toolbar is open or moves, the region
-    // is the toolbar and the results area, without the shadow margins.
+    // is the rectangle of the toolbar and its visible shadow. The region is a
+    // rectangle, so the rounded corners keep their antialiasing. While the
+    // toolbar is open or moves, the region is the full window, so the shadows
+    // of the expanded items show.
     void App::UpdateRegion()
     {
         const bool full = hover_ >= 0 || menuOpen_ || pressing_ || animating_ || runOpen_ || scene_.RunVisible();
@@ -376,14 +346,12 @@ namespace dm
         }
         if (full)
         {
-            const RECT r = scene_.InteractiveRect();
-            SetWindowRgn(hwnd_, CreateRectRgn(r.left, r.top, r.right, r.bottom), FALSE);
+            SetWindowRgn(hwnd_, nullptr, FALSE);
         }
         else
         {
-            const RECT r = scene_.RestTrackRect();
-            const int d = static_cast<int>(std::lround(scene_.RadiusPx() * 2));
-            SetWindowRgn(hwnd_, CreateRoundRectRgn(r.left, r.top, r.right + 1, r.bottom + 1, d, d), FALSE);
+            const RECT r = scene_.RestRegion();
+            SetWindowRgn(hwnd_, CreateRectRgn(r.left, r.top, r.right, r.bottom), FALSE);
         }
         fullRegion_ = full;
         regionDirty_ = false;
@@ -1288,24 +1256,6 @@ namespace dm
         const POINT p{ GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
         switch (msg)
         {
-        case WM_WINDOWPOSCHANGED:
-            if (visual_)
-            {
-                const auto* pos = reinterpret_cast<const WINDOWPOS*>(lp);
-                RECT rc;
-                GetWindowRect(hwnd_, &rc);
-                UINT flags = SWP_NOACTIVATE | SWP_NOZORDER;
-                if (pos->flags & SWP_SHOWWINDOW)
-                {
-                    flags |= SWP_SHOWWINDOW;
-                }
-                if (pos->flags & SWP_HIDEWINDOW)
-                {
-                    flags |= SWP_HIDEWINDOW;
-                }
-                SetWindowPos(visual_, nullptr, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, flags);
-            }
-            break;
         case WM_MOUSEACTIVATE:
             return (runOpen_ || summoned_) ? MA_ACTIVATE : MA_NOACTIVATE;
         case WM_ACTIVATE:

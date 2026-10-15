@@ -212,7 +212,7 @@ namespace dm
             }
         }
         c.theme = Parse(ThemeNames, o.GetNamedString(L"theme", L"dark"), Theme::Dark);
-        c.material = Parse(MaterialNames, o.GetNamedString(L"material", L"acrylic"), Material::Acrylic);
+        c.material = Parse(MaterialNames, o.GetNamedString(L"material", L"solid"), Material::Solid);
         c.collapsedStyle = Parse(StyleNames, o.GetNamedString(L"collapsedStyle", L"slice"), CollapsedStyle::Slice);
         c.widgetsCollapse = o.GetNamedString(L"widgetDisplay", L"text") == L"collapse";
         if (auto sp = o.GetNamedObject(L"spring", nullptr))

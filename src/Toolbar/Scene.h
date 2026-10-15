@@ -70,8 +70,7 @@ namespace dm
         static float TopMargin();    // DIPs above the toolbar, for the shadows.
         static float RunContentHeight();  // DIPs from the toolbar top to the bottom of the results.
         RECT RestTrackRect() const;  // Client pixels.
-        RECT InteractiveRect() const;  // Client pixels: the area that takes input while the toolbar is open.
-        float RadiusPx() const;
+        RECT RestRegion() const;  // Client pixels: the toolbar and its visible shadow at rest.
         int HitTestItem(POINT clientPx) const;
         bool HitTestOrb(POINT clientPx) const;
         bool HitTestTrack(POINT clientPx) const;
@@ -90,6 +89,17 @@ namespace dm
             std::vector<float> key;
         };
 
+        // One outer CSS box-shadow of a rounded box, drawn by the compositor.
+        // The sprite has no content. The shadow takes its shape from a mask.
+        struct Caster
+        {
+            winrt::Windows::UI::Composition::SpriteVisual sprite{ nullptr };
+            winrt::Windows::UI::Composition::DropShadow shadow{ nullptr };
+            winrt::Windows::UI::Composition::CompositionRoundedRectangleGeometry geom{ nullptr };
+            winrt::Windows::UI::Composition::ShapeVisual shape{ nullptr };
+            winrt::Windows::UI::Composition::CompositionVisualSurface surface{ nullptr };
+        };
+
         struct ItemVisual
         {
             SceneItem src;
@@ -98,8 +108,18 @@ namespace dm
             Spring w, h, tone, press;
             bool fresh = true;
 
-            // Apps: one surface with the shadows, the plate, and the icon.
-            Drawn art;
+            // Apps: Composition visuals only, so that an animation frame only
+            // writes sizes and colors. 'art' has the box size and the press scale.
+            winrt::Windows::UI::Composition::ContainerVisual art{ nullptr };
+            Caster casters[4];  // Outer shadows. Index 0 is the lowest.
+            winrt::Windows::UI::Composition::SpriteVisual highlight{ nullptr };  // inset 0 1px 0: shows above 'cover'.
+            winrt::Windows::UI::Composition::CompositionColorBrush highlightBrush{ nullptr };
+            winrt::Windows::UI::Composition::SpriteVisual cover{ nullptr };  // The plate, 1 px lower.
+            winrt::Windows::UI::Composition::CompositionColorBrush coverBrush{ nullptr };
+            winrt::Windows::UI::Composition::CompositionRoundedRectangleGeometry coverClip{ nullptr };
+            winrt::Windows::UI::Composition::SpriteVisual icon{ nullptr };
+            winrt::Windows::UI::Composition::SpriteVisual dim{ nullptr };  // CSS brightness(): black, masked by the icon.
+            winrt::Windows::UI::Composition::CompositionDrawingSurface iconSurface{ nullptr };
 
             // Widgets.
             winrt::Windows::UI::Composition::ContainerVisual box{ nullptr };
@@ -133,7 +153,7 @@ namespace dm
             winrt::Windows::UI::Composition::CompositionRoundedRectangleGeometry borderGeom{ nullptr };
             winrt::Windows::UI::Composition::CompositionColorBrush borderBrush{ nullptr };
             winrt::Windows::UI::Composition::CompositionSpriteShape borderShape{ nullptr };
-            Drawn shadow;
+            Caster shadows[2];
             float saturate = 1.f;
         };
 
@@ -141,7 +161,7 @@ namespace dm
         {
             winrt::Windows::UI::Color tint;
             winrt::Windows::UI::Color border;
-            Shadow shadow;
+            ShadowList shadows;
             float radius;
         };
 
@@ -150,6 +170,9 @@ namespace dm
         winrt::com_ptr<IDWriteTextFormat> MakeFormat(const wchar_t* family, DWRITE_FONT_WEIGHT weight, float size,
                                                     float lineHeight, bool trim);
         Drawn CreateDrawn();
+        Caster CreateCaster();
+        // Box and radius in DIPs, in the coordinates of the parent of the caster.
+        void SetCaster(Caster& c, float x, float y, float w, float h, float radius, const Shadow& s);
         Panel CreatePanel(float saturate);
         void LayoutPanel(Panel& p, float x, float y, float w, float h, const PanelStyle& style);
         winrt::Windows::UI::Composition::CompositionBrush BackdropBrush(float saturate);
@@ -160,6 +183,7 @@ namespace dm
         ID2D1Bitmap* BitmapFor(IWICBitmapSource* src, ID2D1DeviceContext* dc);
         void RenderItem(ItemVisual& v, float cx, float cy, float bh);
         void RenderOrb(float cx, float cy, float hover, float pulse);
+        void RenderIcon(ItemVisual& v);
         void RenderLabel(ItemVisual& v, bool detail);
         void RenderInput();
         void RenderResults();

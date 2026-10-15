@@ -75,7 +75,6 @@ namespace dm
 
         HINSTANCE instance_ = nullptr;
         HWND hwnd_ = nullptr;
-        HWND visual_ = nullptr;  // Shows the content. Owned by hwnd_, so it is always above it.
         Scene scene_;
         Config config_;
         Widgets widgets_;
