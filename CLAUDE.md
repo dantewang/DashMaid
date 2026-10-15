@@ -12,7 +12,7 @@ The toolbar uses one window. The window has margins for the shadows. At rest, th
 
 The background is opaque by default, like the original component. Its shadow is the shadow of the original component.
 
-An HTML prototype shows the interaction and the layout. The prototype is published as a private Artifact at https://claude.ai/artifact/HguynqyhfMH1omXntvjZMg. A local copy is at `prototype/dashmaid.html`. Git ignores the `prototype/` folder. Do not commit the prototype.
+An HTML prototype shows the interaction and the layout. The prototype is published as a private Artifact at https://claude.ai/artifact/HguynqyhfMH1omXntvjZMg. To read it, use the Artifact read action. Git ignores the `prototype/` folder. Do not commit the prototype.
 
 ## Target platform
 
