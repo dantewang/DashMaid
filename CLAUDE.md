@@ -61,7 +61,7 @@ Installed on the development machine:
   - A choice of two or three values uses `Ui.Segmented` (the `.seg` buttons of the prototype). A choice of more values uses a combo box. The settings window shows no previews.
   - Command-line argument `--page <general|items|widgets|look|keys|about>` opens a page.
 - `src/Assets/DashMaid.ico`: the application icon (the logo of the prototype). Both processes use it. To make it again, run `pwsh -NoProfile -File tools\MakeIcon.ps1`.
-- `tools/`: scripts for the development.
+- `tools/`: scripts for the development. `Package.ps1` makes the release zip. `MakeIcon.ps1` makes the application icon.
 - `tests/`: unit tests for the code that has no UI (`ToolbarTests`). Run them with `ctest --test-dir build -C Debug`.
 - `build/`: CMake output. Git ignores this folder.
 
@@ -75,6 +75,18 @@ Run these commands from the repository root:
 ```
 
 The output is `build\src\Toolbar\Debug\DashMaid.exe`. The build also builds the settings window into `build\src\Toolbar\Debug\Settings\DashMaid.Settings.exe`: the `Settings` CMake target runs `dotnet build`. The first build downloads the Windows App SDK packages from NuGet. Only one instance runs at a time. To stop it, right-click the tray icon and select 退出.
+
+To make the release zip, run this command from the repository root:
+
+```
+pwsh -NoProfile -File tools\Package.ps1
+```
+
+The script builds `DashMaid.exe` in the Release configuration, publishes the settings window with `dotnet publish`, and writes `build\DashMaid-<version>-win-x64.zip`. The version comes from `project()` in `CMakeLists.txt`. The zip has one folder, `DashMaid`, with `DashMaid.exe` and the `Settings` folder. The script removes the files that the app does not use at run time: `.pdb` and `.winmd` files, `createdump.exe`, `RestartAgent.exe`, and the WinUI language folders other than `zh-CN`, `zh-TW`, and `en-us`. The target computer needs no other installation: `DashMaid.exe` links the C++ runtime statically, and the settings window is self-contained.
+
+- The settings window references `Microsoft.WindowsAppSDK.WinUI`, not `Microsoft.WindowsAppSDK`. The second package adds the AI, ML, Search, and Widgets components, which the app does not use.
+- `EnableMsixTooling` must stay `true` in the settings project. Without it, `dotnet publish` does not copy the `.pri` file, and the published settings window does not start.
+- Do not trim the settings window (`PublishTrimmed`). Its COM interop and the Windows SDK projection are not safe for trimming.
 
 ## Configuration file
 

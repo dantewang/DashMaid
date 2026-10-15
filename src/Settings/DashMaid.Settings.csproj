@@ -16,6 +16,8 @@
     <!-- Unpackaged and self-contained: no MSIX, no Store, no runtime installer. -->
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <!-- Makes "dotnet publish" include the resource index (.pri) with the compiled XAML. Without it, the published app does not start. -->
+    <EnableMsixTooling>true</EnableMsixTooling>
     <SelfContained>true</SelfContained>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>../Assets/DashMaid.ico</ApplicationIcon>
@@ -30,7 +32,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+    <!-- WinUI and its dependencies only. The Microsoft.WindowsAppSDK package also adds the AI, ML, Search, and Widgets components. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.9" />
+    <!-- WinUI 2.3.9 asks for 2.1.8, which is not on NuGet. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.9" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
   </ItemGroup>
 
