@@ -607,7 +607,7 @@ namespace dm
         {
             const Rgb st[4] = { Mix(d, black, 0.12f), d, Mix(d, white, 0.22f), pal.plate };
             plate = Stops(st, t);
-            iconSize = h;  // The expanded item shows the icon at the full size of the box.
+            iconSize = h * 0.74f;
             iconOpacity = pa * pa;
             highlight = 0.45f * q;  // inset 0 1px 0 rgba(255,255,255,.45q)
             ring = 0.f;
@@ -621,7 +621,7 @@ namespace dm
         {
             const Rgb st[4] = { Mix(d, black, 0.62f), Mix(d, black, 0.48f), Mix(d, black, 0.3f), pal.plate };
             plate = Stops(st, t);
-            iconSize = h * Lerp(1.3f, 1.f, pa);
+            iconSize = h * Lerp(1.3f, 0.74f, pa);
             iconOpacity = 1.f;
             brightness = pa >= 1.f ? 1.f : Lerp(0.72f, 1.f, std::max(g, pa));
             highlight = 0.3f * q;  // inset 0 1px 0 rgba(255,255,255,.3q)
@@ -697,7 +697,7 @@ namespace dm
         {
             return;
         }
-        const float maxSize = std::max(AppExpanded, AppH[2] * 1.3f);
+        const float maxSize = std::max(AppExpanded * 0.74f, AppH[2] * 1.3f);
         const auto px = PxSize(maxSize, maxSize, scale_);
         if (!v.iconSurface)
         {
