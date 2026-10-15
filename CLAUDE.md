@@ -50,6 +50,7 @@ Installed on the development machine:
   - `TextEdit.*`: single-line text editing for the run box.
   - `Hotkey.*`: parse hotkey text such as `Ctrl+Alt+R`.
   - `Widgets.*`: widget data (clock, CPU, memory, network) and the command runner.
+  - `Monitors.*`: find the monitor of the screen top mode by its device path.
   - `Paint.*`: CSS rules in Direct2D: box shadows, shadow-list interpolation, cubic-bezier timing, and transitions.
   - `Effects.*`: Direct2D effect descriptions for Composition effect brushes (blur, saturate), without Win2D.
   - `Metrics.h`: sizes in DIPs. `Strings.h`: UI text.
@@ -78,7 +79,7 @@ The output is `build\src\Toolbar\Debug\DashMaid.exe`. The build also builds the 
 
 `%APPDATA%\DashMaid\config.json` (UTF-8). The toolbar writes the defaults when the file does not exist. Fields:
 
-- `position`: `mode` (`float`, `dock`, `center`, `cursor`), `x` (toolbar center, screen pixels), `y` (toolbar top, screen pixels), `dockStyle` (`float`: a gap above the toolbar, or `flush`: no gap and square top corners), `appBar` (`true` or `false`: in the `dock` mode, keep maximized windows below the toolbar).
+- `position`: `mode` (`float`, `dock`, `center`, `cursor`), `x` (toolbar center, screen pixels), `y` (toolbar top, screen pixels), `dockStyle` (`float`: a gap above the toolbar, or `flush`: no gap and square top corners), `appBar` (`true` or `false`: in the `dock` mode, keep maximized windows below the toolbar), `monitor` (the `dock` mode: the device path of the monitor, for example `\\?\DISPLAY#...`. Empty: the primary monitor. If the monitor is not connected, the toolbar uses the primary monitor).
 - `theme`: `dark` or `light`. `material`: `solid` (default) or `acrylic`. `collapsedStyle`: `slice` or `glow`.
 - `hideFullscreen`: `true` (default) or `false`. In the `float` and `dock` modes, hide the toolbar while a full-screen app runs on its monitor. The toolbar registers as an AppBar for the shell notification. This AppBar keeps no screen area.
 - `autostart`: `true` or `false` (default). The toolbar writes or removes the `DashMaid` value in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
@@ -98,6 +99,7 @@ The output is `build\src\Toolbar\Debug\DashMaid.exe`. The build also builds the 
   - Screen top: topmost and attached to the top edge. Optional AppBar registration keeps maximized windows below the toolbar.
   - Hidden until a global hotkey shows it at the center of the screen.
   - Hidden until a global hotkey shows it next to the pointer.
+  - Monitor: the screen top mode uses the monitor that the user selects. The floating toolbar goes to the position where the user drags it. The two hotkey modes use the monitor of the pointer.
 - App items: the user selects an app from the Start menu "All apps" list or selects an executable file and arguments manually. Windows has no public API for the "Pinned" list, so the settings window does not show it.
   - Collapsed style 1: a part of the app icon.
   - Collapsed style 2: the main color of the icon with a glow.

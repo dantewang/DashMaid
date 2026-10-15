@@ -41,6 +41,7 @@ namespace dm
         int y = Unset;  // Screen Y of the toolbar top, in physical pixels.
         DockStyle dockStyle = DockStyle::Float;
         bool appBar = true;  // Screen top: keep maximized windows below the toolbar.
+        std::wstring monitor;  // Screen top: device path of the monitor. Empty: the primary monitor.
         bool hideFullscreen = true;  // Hide the floating and screen top toolbar while a full-screen app runs.
         bool autostart = false;      // Start with Windows (HKCU Run key).
         Theme theme = Theme::Dark;

@@ -4,6 +4,7 @@
 #include "Icons.h"
 #include "Launch.h"
 #include "Metrics.h"
+#include "Monitors.h"
 #include "Strings.h"
 
 using namespace dm::metrics;
@@ -243,7 +244,7 @@ namespace dm
         int y = anchor_.y;
         if (config_.mode == PositionMode::Dock)
         {
-            HMONITOR mon = MonitorFromPoint(anchor_, MONITOR_DEFAULTTOPRIMARY);
+            HMONITOR mon = DockMonitor(config_.monitor);
             MONITORINFO mi{ sizeof(mi) };
             GetMonitorInfoW(mon, &mi);
             x = (mi.rcMonitor.left + mi.rcMonitor.right) / 2 - w / 2;
@@ -301,7 +302,7 @@ namespace dm
         {
             return;
         }
-        HMONITOR mon = MonitorFromPoint(anchor_, MONITOR_DEFAULTTOPRIMARY);
+        HMONITOR mon = DockMonitor(config_.monitor);
         MONITORINFO mi{ sizeof(mi) };
         GetMonitorInfoW(mon, &mi);
         // Flush: the toolbar only. Float: the gap above, the toolbar, and the same gap below.

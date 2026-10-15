@@ -13,6 +13,7 @@ add_executable(DashMaid WIN32
     Paint.cpp
     Effects.cpp
     Widgets.cpp
+    Monitors.cpp
     DashMaid.rc
     DashMaid.manifest
 )

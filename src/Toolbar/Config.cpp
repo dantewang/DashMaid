@@ -211,6 +211,7 @@ namespace dm
             c.mode = Parse(ModeNames, pos.GetNamedString(L"mode", L"float"), PositionMode::Float);
             c.dockStyle = Parse(DockStyleNames, pos.GetNamedString(L"dockStyle", L"float"), DockStyle::Float);
             c.appBar = pos.GetNamedBoolean(L"appBar", true);
+            c.monitor = pos.GetNamedString(L"monitor", L"");
             if (pos.HasKey(L"x") && pos.HasKey(L"y"))
             {
                 c.x = static_cast<int>(pos.GetNamedNumber(L"x"));
@@ -285,6 +286,7 @@ namespace dm
         pos.SetNamedValue(L"mode", JsonValue::CreateStringValue(Name(ModeNames, mode)));
         pos.SetNamedValue(L"dockStyle", JsonValue::CreateStringValue(Name(DockStyleNames, dockStyle)));
         pos.SetNamedValue(L"appBar", JsonValue::CreateBooleanValue(appBar));
+        pos.SetNamedValue(L"monitor", JsonValue::CreateStringValue(monitor));
         if (x != Unset && y != Unset)
         {
             pos.SetNamedValue(L"x", JsonValue::CreateNumberValue(x));

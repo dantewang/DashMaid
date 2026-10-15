@@ -61,6 +61,16 @@ public sealed class Pages
         {
             rows.Add(Ui.Card("顶部样式", Ui.Combo([("float", "悬浮"), ("flush", "贴边")], ConfigStore.Str(pos, "dockStyle", "float"),
                 v => store.Change(r => store.Object("position")["dockStyle"] = v))));
+            var monitor = ConfigStore.Str(pos, "monitor", "");
+            var monitors = Monitors.List().ConvertAll(m => (m.Path, m.Name));
+            monitors.Insert(0, ("", "主显示器"));
+            if (!monitors.Exists(m => string.Equals(m.Item1, monitor, StringComparison.OrdinalIgnoreCase)))
+            {
+                monitors.Add((monitor, "未连接的显示器"));
+            }
+            var selected = monitors.Find(m => string.Equals(m.Item1, monitor, StringComparison.OrdinalIgnoreCase)).Item1;
+            rows.Add(Ui.Card("显示器", Ui.Combo([.. monitors], selected,
+                v => store.Change(r => store.Object("position")["monitor"] = v))));
             rows.Add(Ui.Card("保留屏幕空间", Ui.Toggle(ConfigStore.Bool(pos, "appBar", true),
                 v => store.Change(r => store.Object("position")["appBar"] = v), "保留屏幕空间")));
         }
