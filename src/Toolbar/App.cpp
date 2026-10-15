@@ -838,8 +838,8 @@ namespace dm
         }
         else
         {
-            trackLeft = summonCursor_.x - static_cast<int>(std::lround(24 * scale_));
-            top = summonCursor_.y + static_cast<int>(std::lround(18 * scale_));
+            trackLeft = summonCursor_.x - static_cast<int>(std::lround((PadX + OrbMarginLeft + Orb / 2) * scale_));
+            top = summonCursor_.y + static_cast<int>(std::lround(27 * scale_));
         }
         const int left = wa.left + margin, right = wa.right - margin, topEdge = wa.top + margin, bottom = wa.bottom - margin;
         trackLeft = std::clamp(trackLeft, left, std::max(left, right - trackW));

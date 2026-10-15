@@ -6,11 +6,11 @@ DashMaid is a Windows desktop launcher. It shows a toolbar that stays above all 
 
 The toolbar process works for app items: icons, the hover animation, click to start, the right-click menu, drag to move, and the tray icon. The run box works: the round button or the run hotkey opens it. It searches the toolbar apps and the Start menu apps (name, path, and pinyin initials), and it runs commands like the Windows Run dialog. Widgets work: clock, CPU, memory, network, and command output. The center and cursor modes work: the toggle hotkey shows the toolbar, and Esc, the hotkey, a click outside, or a started app hides it. The screen top mode works, with an optional AppBar. The toolbar hides while a full-screen app runs on its monitor, and it can start with Windows. The settings window works: the 设置 menu command opens it. Changes go to `config.json` at once, and the toolbar applies them.
 
-The look of the toolbar must be the same as the prototype: colors, shadows, antialiasing, and timing. `Scene.cpp` uses the CSS values of the prototype directly. To compare, put the app and the prototype on the same plain background and compare the pixels.
+The look of the toolbar must be the same as the prototype: colors, shadows, antialiasing, and timing. `Scene.cpp` uses the CSS values of the prototype directly. Exceptions: the sizes come from the original component (the prototype uses a 48 px toolbar, so the effects of the items are multiplied by 1.5), the run button is flat, and app items in the "图标局部" style also have a glow. To compare, put the app and the prototype on the same plain background and compare the pixels.
 
 The toolbar uses one window. The window has margins for the shadows. At rest, the window region is a rectangle around the toolbar and its visible shadow, so the rounded corners keep their antialiasing. While the toolbar is open or moves, the region is the full window. The compositor draws the shadows (`DropShadow`) and the app items, so an animation frame only writes sizes, offsets, and colors.
 
-The background is opaque by default, like the original component. Its shadow is the shadow of the original component, scaled to the height of 48 px.
+The background is opaque by default, like the original component. Its shadow is the shadow of the original component.
 
 An HTML prototype shows the interaction and the layout. The prototype is published as a private Artifact at https://claude.ai/artifact/HguynqyhfMH1omXntvjZMg. A local copy is at `prototype/dashmaid.html`. Git ignores the `prototype/` folder. Do not commit the prototype.
 
@@ -93,7 +93,9 @@ The output is `build\src\Toolbar\Debug\DashMaid.exe`. The build also builds the 
 
 ## Required behavior
 
-- Toolbar height: 48 px at 100% display scale. This value is the default Windows 11 taskbar height. Use a fixed value. Do not read the height from the system.
+- Toolbar and item sizes: the sizes of the original component at 100% display scale. The toolbar is 72 px high at rest and 80 px high while it is open. Items are 8 × 24 px at rest, 12 × 36 px next to the item under the pointer, 10 × 30 px one item farther, and 48 px high when expanded. Items have a 24 px gap. Use fixed values. Do not read sizes from the system.
+- Run button: a flat circle with a search icon. Do not use a 3D look.
+- App items in both collapsed styles have a glow in the main color of the icon. The glow color is lighter or darker than the main color when necessary, so that items with black or white icons stay visible on the toolbar.
 - Toolbar positions:
   - Floating: topmost in Z-order. The user can drag the toolbar to a new position.
   - Screen top: topmost and attached to the top edge. Optional AppBar registration keeps maximized windows below the toolbar.

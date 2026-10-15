@@ -246,6 +246,7 @@ namespace dm
         winrt::com_ptr<IDWriteTextFormat> subtitleFormat_;
         winrt::com_ptr<IDWriteTextFormat> keyFormat_;
         winrt::com_ptr<IDWriteTextFormat> widgetFormat_;
+        winrt::com_ptr<IDWriteTextFormat> orbFormat_;
         winrt::com_ptr<IDWriteTypography> tabular_;
         winrt::com_ptr<IDWriteTextLayout> inputLayout_;
 

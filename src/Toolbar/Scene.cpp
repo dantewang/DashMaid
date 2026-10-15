@@ -21,8 +21,13 @@ namespace dm
         constexpr wchar_t MonoFont[] = L"Consolas";
         constexpr wchar_t Locale[] = L"zh-CN";
 
-        // Room around the orb for its shadows (CSS px).
-        constexpr float OrbMargin = 30.f;
+        // Room around the run button for its glow.
+        constexpr float OrbMargin = 20.f;
+
+        // The "Search" glyph of the Windows 11 icon font.
+        constexpr wchar_t IconFont[] = L"Segoe Fluent Icons";
+        constexpr wchar_t OrbGlyph[] = L"\xE721";
+        constexpr float OrbGlyphSize = 15.f;
 
         // backdrop-filter: blur(24px) saturate(1.6). The host backdrop has its
         // own blur (about 20 CSS px, measured), so a second blur adds the rest.
@@ -161,6 +166,21 @@ namespace dm
             return m;
         }
 
+        // The glow color of an app item: the main color of the icon, with a
+        // lightness that the toolbar background does not hide. Black icons
+        // get a gray glow in the dark theme, and white icons in the light theme.
+        Rgb GlowColor(Rgb d, Theme theme)
+        {
+            const float l = (std::max({ d.r, d.g, d.b }) + std::min({ d.r, d.g, d.b })) / 2 / 255.f;
+            if (theme == Theme::Dark)
+            {
+                constexpr float minL = 0.55f;
+                return l >= minL ? d : Mix(d, { 255, 255, 255 }, (minL - l) / (1.f - l));
+            }
+            constexpr float maxL = 0.45f;
+            return l <= maxL ? d : Mix(d, { 0, 0, 0 }, 1.f - maxL / l);
+        }
+
         // The box-shadow lists of the prototype.
         const ColorF Black{ 0, 0, 0, 1 };
 
@@ -170,31 +190,20 @@ namespace dm
             return c;
         }
 
-        ShadowList OrbShadows(float hover, float pulse)
+        // The run button: a flat circle with a glow in the accent color that
+        // pulses while the run box is open.
+        ShadowList OrbShadows(uint32_t accent, float pulse)
         {
-            static const ShadowList normal = {
-                { 0, 0, 0, 1, WithAlpha(Black, 0.45f) },
-                { 0, 2, 6, 0, WithAlpha(Black, 0.45f) },
-                { 0, -2, 4, 0, WithAlpha(Black, 0.22f), true },
-            };
-            static const ShadowList hovered = {
-                { 0, 0, 0, 1, WithAlpha(Black, 0.45f) },
-                { 0, 0, 14, 2, { 1, 1, 1, 0.35f } },
-            };
-            static const ShadowList pulsing = {
-                { 0, 0, 0, 1, WithAlpha(Black, 0.45f) },
-                { 0, 0, 16, 4, { 140 / 255.f, 220 / 255.f, 205 / 255.f, 0.5f } },
-            };
-            ShadowList list = Interpolate(normal, hovered, hover);
-            return pulse > 0.f ? Interpolate(list, pulsing, pulse) : list;
+            const ColorF c{ (accent >> 16 & 0xFF) / 255.f, (accent >> 8 & 0xFF) / 255.f, (accent & 0xFF) / 255.f, 0.f };
+            return { { 0, 0, 12 * pulse, 2 * pulse, WithAlpha(c, 0.45f * pulse) } };
         }
 
-        // The shadow of the original component, scaled from its height of 72 px to 48 px.
+        // The shadow of the original component.
         const ShadowList& PanelShadows()
         {
             static const ShadowList list = {
-                { 0, 0.322f, 1.352f, -1.f, WithAlpha(Black, 0.06f) },
-                { 0, 2.667f, 11.2f, -2.f, WithAlpha(Black, 0.04f) },
+                { 0, 0.4829f, 2.0282f, -1.5f, WithAlpha(Black, 0.06f) },
+                { 0, 4.f, 16.8f, -3.f, WithAlpha(Black, 0.04f) },
             };
             return list;
         }
@@ -349,6 +358,9 @@ namespace dm
         keyFormat_ = MakeFormat(MonoFont, DWRITE_FONT_WEIGHT_NORMAL, KeyFontSize, KeyFontSize * LineHeightFactor, false);
         widgetFormat_ = MakeFormat(TextFont, DWRITE_FONT_WEIGHT_SEMI_BOLD, WidgetFontSize, 0.f, false);
         widgetFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        orbFormat_ = MakeFormat(IconFont, DWRITE_FONT_WEIGHT_NORMAL, OrbGlyphSize, 0.f, false);
+        orbFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        orbFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
         const DWRITE_FONT_METRICS m = FontMetrics(dwrite_.get(), TextFont, DWRITE_FONT_WEIGHT_MEDIUM);
         inputLineHeight_ = static_cast<float>(m.ascent + m.descent + m.lineGap) / m.designUnitsPerEm * RunFontSize;
@@ -585,6 +597,9 @@ namespace dm
         const Rgb black{ 0, 0, 0 }, white{ 255, 255, 255 };
         const CollapsedStyle style = v.src.style.value_or(style_);
 
+        // The effects of the prototype were for a 48 px toolbar.
+        constexpr float k = 1.5f;
+        const Rgb glow = GlowColor(d, theme_);
         Rgb plate;
         float iconSize, iconOpacity, brightness = 1.f, highlight, ring;
         ShadowList outer;
@@ -597,9 +612,9 @@ namespace dm
             highlight = 0.45f * q;  // inset 0 1px 0 rgba(255,255,255,.45q)
             ring = 0.f;
             outer = {
-                { 0, 0, 5 + 8 * g, 0.5f + 1.5f * g, Css(d, (0.5f + 0.4f * g) * q) },
-                { 0, 6 * pa, 18 * pa, 0, Css(black, 0.32f * pa) },
-                { 0, 0, 18 * pa, 0, Css(d, 0.28f * pa) },
+                { 0, 0, (5 + 8 * g) * k, (0.5f + 1.5f * g) * k, Css(glow, (0.5f + 0.4f * g) * q) },
+                { 0, 6 * pa * k, 18 * pa * k, 0, Css(black, 0.32f * pa) },
+                { 0, 0, 18 * pa * k, 0, Css(glow, 0.28f * pa) },
             };
         }
         else
@@ -611,9 +626,11 @@ namespace dm
             brightness = pa >= 1.f ? 1.f : Lerp(0.72f, 1.f, std::max(g, pa));
             highlight = 0.3f * q;  // inset 0 1px 0 rgba(255,255,255,.3q)
             ring = 0.14f * q;      // inset 0 0 0 1px rgba(255,255,255,.14q)
+            // The glow shows the item when the icon has the color of the toolbar.
             outer = {
                 { 0, 0, 0, 1, Css(black, 0.55f * q) },
-                { 0, 2 + 5 * pa, 5 + 13 * pa, 0, Css(black, 0.3f + 0.08f * pa) },
+                { 0, 0, (4 + 6 * g) * k, (0.5f + 0.5f * g) * k, Css(glow, (0.45f + 0.25f * g) * q) },
+                { 0, (2 + 5 * pa) * k, (5 + 13 * pa) * k, 0, Css(black, 0.3f + 0.08f * pa) },
             };
         }
         if (theme_ == Theme::Light)
@@ -708,7 +725,8 @@ namespace dm
         });
     }
 
-    // .sb-orb: a radial gradient, a ring, a drop shadow, and an inset shadow.
+    // The run button: a flat circle in the color of the widget chips, with a
+    // search glyph. Hover makes the circle and the glyph lighter.
     void Scene::RenderOrb(float cx, float cy, float hover, float pulse)
     {
         const float s = scale_;
@@ -716,29 +734,26 @@ namespace dm
         const float leftPx = cx * s - size * s / 2, topPx = cy * s - size * s / 2;
         const float spriteX = std::floor(leftPx), spriteY = std::floor(topPx);
         const float fx = (leftPx - spriteX) / s, fy = (topPx - spriteY) / s;
-        const ShadowList shadows = OrbShadows(hover, pulse);
+        const Palette& pal = PaletteFor(theme_);
+        const ShadowList shadows = OrbShadows(pal.caret, pulse);
+        const bool dark = theme_ == Theme::Dark;
+        const Rgb fill = dark ? Mix(pal.chip, { 255, 255, 255 }, 0.1f * hover) : Mix(pal.chip, { 0, 0, 0 }, 0.06f * hover);
+        const Rgb glyph = dark ? Mix({ 163, 163, 163 }, { 255, 255, 255 }, hover) : Mix({ 98, 98, 98 }, { 24, 24, 24 }, hover);
 
-        Redraw(orb_, size, size, { hover, pulse, fx, fy }, [&](ID2D1DeviceContext* dc) {
+        Redraw(orb_, size, size, { hover, pulse, fx, fy, dark ? 1.f : 0.f }, [&](ID2D1DeviceContext* dc) {
             const float ox = size / 2 + fx, oy = size / 2 + fy, r = Orb / 2;
             const D2D1_RECT_F box = D2D1::RectF(ox - r, oy - r, ox + r, oy + r);
             PaintShadows(dc, helper_.get(), box, r, shadows, false, s);
 
-            // radial-gradient(circle at 34% 30%, ...): the radius reaches the farthest corner.
-            const D2D1_GRADIENT_STOP stops[] = {
-                { 0.00f, D2DColor(0xFFFFFF) },
-                { 0.20f, D2DColor(0xE8EDF0) },
-                { 0.62f, D2DColor(0xA9B2BA) },
-                { 1.00f, D2DColor(0x69737C) },
-            };
-            winrt::com_ptr<ID2D1GradientStopCollection> coll;
-            dc->CreateGradientStopCollection(stops, ARRAYSIZE(stops), coll.put());
-            const D2D1_POINT_2F center{ box.left + Orb * 0.34f, box.top + Orb * 0.30f };
-            const float reach = Orb * std::hypot(0.66f, 0.70f);
-            winrt::com_ptr<ID2D1RadialGradientBrush> fill;
-            dc->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties(center, { 0, 0 }, reach, reach), coll.get(), fill.put());
-            dc->FillEllipse(D2D1::Ellipse({ ox, oy }, r, r), fill.get());
+            winrt::com_ptr<ID2D1SolidColorBrush> brush;
+            dc->CreateSolidColorBrush(D2DColor(ToRgb32(fill)), brush.put());
+            dc->FillEllipse(D2D1::Ellipse({ ox, oy }, r, r), brush.get());
+            // The line of the chips: inset 0 0 0 1px.
+            brush->SetColor(D2D1::ColorF(pal.chipLine.R / 255.f, pal.chipLine.G / 255.f, pal.chipLine.B / 255.f, pal.chipLine.A / 255.f));
+            dc->DrawEllipse(D2D1::Ellipse({ ox, oy }, r - 0.5f / s, r - 0.5f / s), brush.get(), 1.f / s);
 
-            PaintShadows(dc, helper_.get(), box, r, shadows, true, s);
+            brush->SetColor(D2DColor(ToRgb32(glyph)));
+            dc->DrawTextW(OrbGlyph, 1, orbFormat_.get(), box, brush.get(), D2D1_DRAW_TEXT_OPTIONS_NONE);
         });
 
         orb_.sprite.Offset({ spriteX, spriteY, 0 });
@@ -1297,10 +1312,12 @@ namespace dm
         return (windowWidth_ - TrackWidth()) / 2;
     }
 
-    // width: max(100%, 380px) of the toolbar box.
+    // width: max(100%, 380px) of the toolbar box. The results show only while
+    // the run box is open, so the width is the width of the open toolbar. The
+    // list does not change its width while the run box opens.
     float Scene::ResultsWidth() const
     {
-        return std::max(ResultsMinWidth, TrackWidth());
+        return std::max(ResultsMinWidth, PadX * 2 + OrbBlock + RunWidth);
     }
 
     float Scene::ResultsHeight() const
@@ -1479,7 +1496,7 @@ namespace dm
         barHeight_.target = (hovered >= 0 || runOpen_) ? BarHeightHover : BarHeight;
         run_.target = runOpen_ ? 1.f : 0.f;
         vis_.target = visible_ ? 1.f : 0.f;
-        orbScale_.Set(orbHover_ ? 1.12f : 1.f, time_);
+        orbScale_.Set(orbHover_ ? 1.08f : 1.f, time_);
         orbGlow_.Set(orbHover_ ? 1.f : 0.f, time_);
 
         std::vector<Spring*> all{ &barHeight_, &run_, &vis_ };
@@ -1524,7 +1541,7 @@ namespace dm
         const float vis = std::max(0.f, vis_.x);
         root_.Opacity(Clamp01(vis));
         root_.Scale({ 0.7f + 0.3f * vis, 0.7f + 0.3f * vis, 1 });
-        root_.CenterPoint(scaleFromCursor_ ? float3{ (x0 + 24.f) * s, ShadowTop * s, 0 }
+        root_.CenterPoint(scaleFromCursor_ ? float3{ (x0 + PadX + OrbMarginLeft + Orb / 2) * s, ShadowTop * s, 0 }
                                            : float3{ (x0 + trackW / 2) * s, (ShadowTop + bh / 2) * s, 0 });
         stage_.Offset({ 0, ShadowTop * s, 0 });
 

@@ -2,42 +2,44 @@
 
 #include <algorithm>
 
-// All lengths are in DIPs. The values come from the reference component
-// (72 px track) and are scaled to a 48 px toolbar.
+// All lengths are in DIPs. The toolbar and item sizes are the sizes of the
+// reference component (72 px track). The run box, the effects of the items,
+// and the shadow margins come from the prototype, which used a 48 px
+// toolbar, multiplied by 1.5. The results list keeps the prototype sizes.
 namespace dm::metrics
 {
-    constexpr float BarHeight = 48.f;
-    constexpr float BarHeightHover = 54.f;
-    constexpr float PadX = 7.f;
-    constexpr float Gap = 14.f;
-    constexpr float Radius = 16.f;
+    constexpr float BarHeight = 72.f;
+    constexpr float BarHeightHover = 80.f;
+    constexpr float PadX = 20.f;
+    constexpr float Gap = 24.f;
+    constexpr float Radius = 24.f;
 
-    constexpr float Orb = 22.f;
+    constexpr float Orb = 32.f;
     constexpr float OrbMarginLeft = (BarHeight - Orb) / 2 - PadX;
     constexpr float OrbMarginRight = Gap / 2;
     constexpr float OrbBlock = OrbMarginLeft + Orb + OrbMarginRight;
 
     // Index 0: idle. Index 1: second neighbor. Index 2: first neighbor.
-    constexpr float AppW[3] = { 8.f, 9.f, 11.f };
-    constexpr float AppH[3] = { 18.f, 22.f, 26.f };
-    constexpr float AppExpanded = 38.f;
+    constexpr float AppW[3] = { 8.f, 10.f, 12.f };
+    constexpr float AppH[3] = { 24.f, 30.f, 36.f };
+    constexpr float AppExpanded = 48.f;
 
     // Widgets. Index 0: idle. Index 1: second neighbor. Index 2: first neighbor.
-    constexpr float WidgetW[3] = { 6.f, 7.f, 8.f };
-    constexpr float WidgetH[3] = { 16.f, 20.f, 24.f };
-    constexpr float WidgetExpandedH = 34.f;
-    constexpr float WidgetPadX = 13.f;
-    constexpr float WidgetMaxW = 360.f;
-    constexpr float ChipH = 28.f;  // A widget that always shows its text.
-    constexpr float ChipPadX = 10.f;
-    constexpr float WidgetFontSize = 13.f;
-    constexpr float WidgetLineHeight = 18.f;
+    constexpr float WidgetW[3] = { 8.f, 10.f, 12.f };
+    constexpr float WidgetH[3] = { 24.f, 30.f, 36.f };
+    constexpr float WidgetExpandedH = 48.f;
+    constexpr float WidgetPadX = 18.f;
+    constexpr float WidgetMaxW = 540.f;
+    constexpr float ChipH = 42.f;  // A widget that always shows its text.
+    constexpr float ChipPadX = 15.f;
+    constexpr float WidgetFontSize = 19.f;
+    constexpr float WidgetLineHeight = 27.f;
 
     // Run box (.sb-run).
-    constexpr float RunWidth = 330.f;
-    constexpr float RunTextLeft = 12.f;
-    constexpr float RunTextRight = 10.f;
-    constexpr float RunFontSize = 15.f;
+    constexpr float RunWidth = 480.f;
+    constexpr float RunTextLeft = 16.f;
+    constexpr float RunTextRight = 14.f;
+    constexpr float RunFontSize = 20.f;
     constexpr float CaretWidth = 1.f;
 
     // Results (.sb-results, .rs-row). Line heights follow "line-height: 1.55".
@@ -64,29 +66,29 @@ namespace dm::metrics
 
     // Window margins for the shadows of the expanded items. Each margin holds
     // 2.5 standard deviations of the largest shadow on that side.
-    constexpr float ShadowSide = 14.f;
-    constexpr float ShadowTop = 16.f;
-    constexpr float ShadowBottom = 24.f;
-    constexpr float ResultsShadowBottom = 10.f;
+    constexpr float ShadowSide = 21.f;
+    constexpr float ShadowTop = 24.f;
+    constexpr float ShadowBottom = 36.f;
+    constexpr float ResultsShadowBottom = 15.f;
 
     // The visible part of the toolbar shadow at rest. The window region
     // includes it.
-    constexpr float RestShadowSide = 5.f;
-    constexpr float RestShadowTop = 3.f;
-    constexpr float RestShadowBottom = 8.f;
+    constexpr float RestShadowSide = 8.f;
+    constexpr float RestShadowTop = 5.f;
+    constexpr float RestShadowBottom = 12.f;
 
     // Extra width on each side for spring overshoot.
-    constexpr float OvershootMargin = 4.f;
+    constexpr float OvershootMargin = 6.f;
 
     // Distance in DIPs before a press becomes a drag.
     constexpr float DragThreshold = 5.f;
 
-    constexpr float DockTopOffset = 6.f;
-    constexpr float FloatDefaultTop = 8.f;
+    constexpr float DockTopOffset = 9.f;
+    constexpr float FloatDefaultTop = 12.f;
 
     inline float ItemRadius(float w, float h)
     {
-        const float m = std::min(w, h);
-        return std::max(0.f, std::min({ w / 2, h / 2, 3.f + std::max(0.f, m - 6.f) * 0.18f }));
+        // border-radius: 6px of the reference component. CSS limits it to half the shorter side.
+        return std::max(0.f, std::min({ w / 2, h / 2, 6.f }));
     }
 }
