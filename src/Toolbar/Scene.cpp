@@ -1299,6 +1299,12 @@ namespace dm
         {
             w += (std::max(0.f, v.w.x) + Gap) * keep;
         }
+        // Each slot has half a gap on each side of its item. The last item
+        // has the same distance to the right edge as the orb to the left edge.
+        if (!items_.empty())
+        {
+            w -= Gap / 2 * keep;
+        }
         return w;
     }
 
@@ -1310,6 +1316,10 @@ namespace dm
             float iw, ih, tone;
             Targets(i, hovered, iw, ih, tone);
             w += iw + Gap;
+        }
+        if (!items_.empty())
+        {
+            w -= Gap / 2;
         }
         return w;
     }

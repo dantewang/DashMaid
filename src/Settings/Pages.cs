@@ -425,6 +425,7 @@ public sealed class Pages
         {
             XamlRoot = window.Content.XamlRoot,
             Title = add ? "添加应用" : "选择应用",
+            PrimaryButtonText = "浏览…",
             CloseButtonText = "取消",
             Content = new StackPanel { Spacing = 10, Width = 520, Children = { search, list } },
         };
@@ -467,7 +468,14 @@ public sealed class Pages
             Fill();
             search.Focus(FocusState.Programmatic);
         };
-        await dialog.ShowAsync();
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+        {
+            var path = await PickFile();
+            if (path != null)
+            {
+                chosen = new AppEntry(Path.GetFileNameWithoutExtension(path), path, path);
+            }
+        }
         if (chosen == null)
         {
             return;
@@ -477,19 +485,19 @@ public sealed class Pages
             InsertItem(NewApp(chosen.Name, chosen.Path));
             return;
         }
-        var item = store.Items[selected]!.AsObject();
-        store.Change(_ =>
-        {
-            item["name"] = chosen.Name;
-            item["path"] = chosen.Path;
-            item["args"] = "";
-            item["workingDir"] = "";
-        });
-        UpdateRow(item);
-        ShowEditor();
+        SetApp(store.Items[selected]!.AsObject(), chosen.Name, chosen.Path);
     }
 
     async Task Browse(JsonObject item)
+    {
+        var path = await PickFile();
+        if (path != null)
+        {
+            SetApp(item, Path.GetFileNameWithoutExtension(path), path);
+        }
+    }
+
+    async Task<string?> PickFile()
     {
         var picker = new Microsoft.Windows.Storage.Pickers.FileOpenPicker(window.AppWindow.Id);
         foreach (var ext in new[] { ".exe", ".lnk", ".bat", ".cmd" })
@@ -497,14 +505,15 @@ public sealed class Pages
             picker.FileTypeFilter.Add(ext);
         }
         var file = await picker.PickSingleFileAsync();
-        if (file == null)
-        {
-            return;
-        }
+        return file?.Path;
+    }
+
+    void SetApp(JsonObject item, string name, string path)
+    {
         store.Change(_ =>
         {
-            item["name"] = Path.GetFileNameWithoutExtension(file.Path);
-            item["path"] = file.Path;
+            item["name"] = name;
+            item["path"] = path;
             item["args"] = "";
             item["workingDir"] = "";
         });

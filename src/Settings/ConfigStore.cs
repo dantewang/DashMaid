@@ -190,13 +190,36 @@ public sealed class ConfigStore : IDisposable
         {
             return;
         }
-        pending = false;
         var text = Root.ToJsonString(WriteOptions);
-        Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-        var temp = FilePath + ".tmp";
-        File.WriteAllText(temp, text, new System.Text.UTF8Encoding(false));
-        File.Move(temp, FilePath, overwrite: true);
+        if (!WriteText(text))
+        {
+            flushTimer.Start();  // Try again later. The changes stay pending.
+            return;
+        }
+        pending = false;
         lastText = text;
+    }
+
+    // The toolbar reads the file after each change. While it reads, the
+    // replace can fail with a sharing violation or "access denied".
+    static bool WriteText(string text)
+    {
+        var temp = FilePath + ".tmp";
+        for (int i = 0; i < 10; i++)
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+                File.WriteAllText(temp, text, new System.Text.UTF8Encoding(false));
+                File.Move(temp, FilePath, overwrite: true);
+                return true;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                Thread.Sleep(30);
+            }
+        }
+        return false;
     }
 
     public void Dispose()
